@@ -76,44 +76,81 @@ Default assumes standard nginx access log location. Adjust based on your nginx c
 SQLite command-line tool is automatically installed during setup. Here are some useful queries:
 
 ```bash
-# View all page views (formatted)
+# View recent successful page views (200s, non-bot)
 sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
 .mode column
 .headers on
-SELECT id, timestamp, path, referrer FROM pageviews LIMIT 10;
+SELECT id, timestamp, path, referrer, status_code FROM pageviews
+WHERE status_code = 200 AND is_bot = 0
+ORDER BY timestamp DESC
+LIMIT 10;
 EOF
 
-# Count views by path
+# Count views by path (successful, non-bot only)
 sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
 .mode column
 .headers on
 SELECT path, COUNT(*) as views FROM pageviews
+WHERE status_code = 200 AND is_bot = 0
 GROUP BY path
 ORDER BY views DESC
 LIMIT 20;
 EOF
 
-# Views in last hour
+# All traffic by path (including bots/errors for comparison)
 sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
 .mode column
 .headers on
-SELECT timestamp, path, referrer FROM pageviews
-WHERE datetime(timestamp) > datetime('now', '-1 hour');
+SELECT path, status_code, COUNT(*) as views FROM pageviews
+GROUP BY path, status_code
+ORDER BY views DESC
+LIMIT 20;
 EOF
 
-# Most common referrers
+# Views in last hour (successful pages only)
+sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+.mode column
+.headers on
+SELECT timestamp, path, referrer, status_code FROM pageviews
+WHERE datetime(timestamp) > datetime('now', '-1 hour')
+AND status_code = 200 AND is_bot = 0
+ORDER BY timestamp DESC;
+EOF
+
+# Most common referrers (for actual traffic)
 sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
 .mode column
 .headers on
 SELECT referrer, COUNT(*) as count FROM pageviews
-WHERE referrer != '-'
+WHERE referrer != '-' AND referrer != ''
+AND status_code = 200 AND is_bot = 0
 GROUP BY referrer
 ORDER BY count DESC
 LIMIT 10;
 EOF
 
-# Export to CSV
-sudo sqlite3 -header -csv /var/lib/theia/pageviews.db "SELECT * FROM pageviews;" > pageviews.csv
+# Bot activity summary
+sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+.mode column
+.headers on
+SELECT
+  COUNT(*) as total_requests,
+  SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bot_requests,
+  SUM(CASE WHEN status_code = 404 THEN 1 ELSE 0 END) as not_found,
+  SUM(CASE WHEN status_code = 200 AND is_bot = 0 THEN 1 ELSE 0 END) as real_pageviews
+FROM pageviews;
+EOF
+
+# Cleanup old data (older than 60 days)
+sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+DELETE FROM pageviews
+WHERE datetime(timestamp) < datetime('now', '-60 days');
+SELECT changes() as 'Rows deleted';
+EOF
+
+# Export real pageviews to CSV
+sudo sqlite3 -header -csv /var/lib/theia/pageviews.db \
+  "SELECT * FROM pageviews WHERE status_code = 200 AND is_bot = 0;" > real_pageviews.csv
 ```
 
 ## Service Management

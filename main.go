@@ -9,6 +9,7 @@ import (
 	"log"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,13 +17,15 @@ import (
 )
 
 type PageView struct {
-	Timestamp time.Time
-	Path      string
-	Referrer  string
-	UserAgent string
-	IPHash    string
-	IsBot     bool
-	IsStatic  bool
+	Timestamp  time.Time
+	Path       string
+	Referrer   string
+	UserAgent  string
+	StatusCode int
+	BytesSent  int
+	IPHash     string
+	IsBot      bool
+	IsStatic   bool
 }
 
 func main() {
@@ -67,6 +70,8 @@ func initTable(db *sql.DB) error {
 		path TEXT,
 		referrer TEXT,
 		user_agent TEXT,
+		status_code INTEGER,
+		bytes_sent INTEGER,
 		ip_hash TEXT,
 		is_bot BOOLEAN,
 		is_static BOOLEAN
@@ -88,11 +93,11 @@ func dbWriter(db *sql.DB, pageViews <-chan PageView) {
 		}
 
 		pageViewQuery := `
-		INSERT INTO pageviews (timestamp, path, referrer, user_agent, ip_hash, is_bot, is_static)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO pageviews (timestamp, path, referrer, user_agent, status_code, bytes_sent, ip_hash, is_bot, is_static)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`
 
-		_, err := db.Exec(pageViewQuery, pageView.Timestamp, pageView.Path, pageView.Referrer, pageView.UserAgent, pageView.IPHash, pageView.IsBot, pageView.IsStatic)
+		_, err := db.Exec(pageViewQuery, pageView.Timestamp, pageView.Path, pageView.Referrer, pageView.UserAgent, pageView.StatusCode, pageView.BytesSent, pageView.IPHash, pageView.IsBot, pageView.IsStatic)
 		if err != nil {
 			fmt.Printf("Unable to write pageview into database, got: %v\n", err)
 		}
@@ -127,7 +132,7 @@ func tailLog(logPath string, pageViews chan<- PageView) {
 }
 
 func parseNginxLog(line string) (PageView, error) {
-	pattern := `^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) \S+" \d+ \d+ "([^"]*)" "([^"]*)"`
+	pattern := `^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) \S+" (\d+) (\d+) "([^"]*)" "([^"]*)"`
 
 	regex := regexp.MustCompile(pattern)
 	matches := regex.FindStringSubmatch(line)
@@ -136,13 +141,24 @@ func parseNginxLog(line string) (PageView, error) {
 	}
 	ip := matches[1]
 	timestamp := matches[2]
+	// httpMethod := matches[3]
 	path := matches[4]
-	referrer := matches[5]
-	userAgent := matches[6]
+	statusCode := matches[5]
+	bytesSent := matches[6]
+	referrer := matches[7]
+	userAgent := matches[8]
 
 	parsedTimestamp, err := time.Parse("02/Jan/2006:15:04:05 -0700", timestamp)
 	if err != nil {
 		return PageView{}, fmt.Errorf("failed to parse timestamp")
+	}
+	statusCodeAsInt, err := strconv.Atoi(statusCode)
+	if err != nil {
+		return PageView{}, fmt.Errorf("failed to parse statuscode")
+	}
+	bytesSentAsInt, err := strconv.Atoi(bytesSent)
+	if err != nil {
+		return PageView{}, fmt.Errorf("failed to parse bytes sent")
 	}
 
 	hashedIPAddress := sha256.Sum256([]byte(ip))
@@ -153,13 +169,15 @@ func parseNginxLog(line string) (PageView, error) {
 	isStatic := isStaticAsset(path)
 
 	return PageView{
-		Timestamp: parsedTimestamp,
-		Path:      path,
-		Referrer:  referrer,
-		UserAgent: userAgent,
-		IPHash:    hexedIPAddress,
-		IsBot:     isBot,
-		IsStatic:  isStatic,
+		Timestamp:  parsedTimestamp,
+		Path:       path,
+		StatusCode: statusCodeAsInt,
+		BytesSent:  bytesSentAsInt,
+		Referrer:   referrer,
+		UserAgent:  userAgent,
+		IPHash:     hexedIPAddress,
+		IsBot:      isBot,
+		IsStatic:   isStatic,
 	}, nil
 }
 
