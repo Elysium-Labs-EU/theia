@@ -178,9 +178,11 @@ sudo systemctl restart theia
 ## How It Works
 
 1. Reads nginx access logs in real-time using `tail -f`
-2. Parses each log line to extract: path, referrer, user-agent, IP
+2. Parses each log line to extract: path, referrer, user-agent, IP, status code, bytes sent
 3. Hashes IP addresses (SHA256) for privacy
-4. Writes to SQLite database asynchronously
+4. Detects bots and static assets automatically
+5. Writes to SQLite database asynchronously
+6. Automatically cleans up records older than 60 days (runs every 12 hours)
 
 ## Database Schema
 
@@ -191,9 +193,15 @@ CREATE TABLE pageviews (
     path TEXT,
     referrer TEXT,
     user_agent TEXT,
-    ip_hash TEXT
+    status_code INTEGER,
+    bytes_sent INTEGER,
+    ip_hash TEXT,
+    is_bot BOOLEAN,
+    is_static BOOLEAN
 );
 ```
+
+**Data Retention:** Records older than 60 days are automatically deleted every 12 hours to manage database size.
 
 ## Requirements
 

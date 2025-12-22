@@ -39,6 +39,7 @@ func main() {
 	pageViews := make(chan PageView, 100)
 
 	go dbWriter(db, pageViews)
+	go cleanupOldRecords(db)
 
 	tailLog("/var/log/nginx/access.log", pageViews)
 }
@@ -179,6 +180,40 @@ func parseNginxLog(line string) (PageView, error) {
 		IsBot:      isBot,
 		IsStatic:   isStatic,
 	}, nil
+}
+
+func cleanupOldRecords(db *sql.DB) {
+	err := dbCleanUpOldLogs(db)
+	if err != nil {
+		fmt.Printf("Initial cleanup error: %v\n", err)
+	}
+
+	ticker := time.NewTicker(12 * time.Hour)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		err := dbCleanUpOldLogs(db)
+		if err != nil {
+			fmt.Printf("Cleanup error: %v\n", err)
+		}
+	}
+}
+
+func dbCleanUpOldLogs(db *sql.DB) error {
+	query := `
+	DELETE FROM pageviews WHERE datetime(timestamp) < datetime('now', '-60 days');`
+
+	result, err := db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("could not delete old records, %w", err)
+	}
+
+	rowsDeleted, _ := result.RowsAffected()
+	if rowsDeleted > 0 {
+		fmt.Printf("Cleanup: deleted %d old records\n", rowsDeleted)
+	}
+
+	return nil
 }
 
 func detectBot(userAgent string) bool {
