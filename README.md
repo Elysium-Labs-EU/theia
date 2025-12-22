@@ -6,12 +6,43 @@ Server-side analytics tool that tracks page views by parsing nginx access logs. 
 
 ## Installation
 
+### Quick Install (Recommended)
+
+Install Theia with a single command:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh | sudo bash
+```
+
+This will:
+
+1. Download the latest release for your architecture (amd64/arm64)
+2. Install the binary to `/usr/local/bin/theia`
+3. Create a systemd service
+4. Set up the data directory at `/var/lib/theia`
+
+Then start the service:
+
+```bash
+sudo systemctl start theia
+sudo systemctl status theia
+```
+
+### Manual Installation
+
+If you prefer to build from source:
+
 ```bash
 # Clone and build
+git clone https://github.com/Elysium-Labs-EU/theia.git
+cd theia
 go build -o theia
 
-# Requires sqlite3 driver
-go get github.com/mattn/go-sqlite3
+# Install manually
+sudo cp theia /usr/local/bin/
+sudo mkdir -p /var/lib/theia
+# Copy theia.service to /etc/systemd/system/
+# Enable and start service
 ```
 
 ## Usage
@@ -39,13 +70,34 @@ Default assumes standard nginx access log location. Adjust based on your nginx c
 
 ```bash
 # View all page views
-sqlite3 pageviews.db "SELECT * FROM pageviews;"
+sudo sqlite3 /var/lib/theia/pageviews.db "SELECT * FROM pageviews;"
 
 # Count views by path
-sqlite3 pageviews.db "SELECT path, COUNT(*) FROM pageviews GROUP BY path;"
+sudo sqlite3 /var/lib/theia/pageviews.db "SELECT path, COUNT(*) FROM pageviews GROUP BY path;"
 
 # Views in last hour
-sqlite3 pageviews.db "SELECT * FROM pageviews WHERE timestamp > datetime('now', '-1 hour');"
+sudo sqlite3 /var/lib/theia/pageviews.db "SELECT * FROM pageviews WHERE timestamp > datetime('now', '-1 hour');"
+```
+
+## Service Management
+
+Theia runs as a systemd service:
+
+```bash
+# Start the service
+sudo systemctl start theia
+
+# Stop the service
+sudo systemctl stop theia
+
+# Check status
+sudo systemctl status theia
+
+# View logs
+sudo journalctl -u theia -f
+
+# Restart service
+sudo systemctl restart theia
 ```
 
 ## How It Works
@@ -70,9 +122,10 @@ CREATE TABLE pageviews (
 
 ## Requirements
 
-- Go 1.16+
+- Linux with systemd
+- Go 1.21+ (for building from source)
 - nginx with standard access log format
-- Read access to nginx logs (typically requires sudo)
+- Root/sudo access (for nginx log access)
 
 ## Limitations
 
