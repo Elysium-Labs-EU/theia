@@ -1,4 +1,4 @@
-# Theia - Privacy-Friendly Page View Tracker
+# theia - Privacy-Friendly Page View Tracker
 
 ## Overview
 
