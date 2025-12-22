@@ -53,7 +53,7 @@ if [ -z "$VERSION" ]; then
     echo "Latest version: $VERSION"
 fi
 
-echo "Downloading Theia $VERSION for linux-$ARCH..."
+echo "Downloading theia $VERSION for linux-$ARCH..."
 
 DOWNLOAD_URL="https://github.com/Elysium-Labs-EU/theia/releases/download/$VERSION/theia-linux-$ARCH"
 
@@ -80,13 +80,28 @@ cp /tmp/theia /usr/local/bin/theia
 
 echo "Binary installed to /usr/local/bin/theia"
 
+echo "Installing SQLite3..."
+if command -v apt-get &> /dev/null; then
+    apt-get update -qq && apt-get install -y -qq sqlite3 > /dev/null 2>&1
+elif command -v yum &> /dev/null; then
+    yum install -y -q sqlite > /dev/null 2>&1
+elif command -v apk &> /dev/null; then
+    apk add --quiet sqlite > /dev/null 2>&1
+else
+    echo "Warning: Could not install sqlite3 automatically."
+    echo "Please install it manually to query your data:"
+    echo "  Debian/Ubuntu: apt-get install sqlite3"
+    echo "  RHEL/CentOS:   yum install sqlite"
+    echo "  Alpine:        apk add sqlite"
+fi
+
 echo "Creating data directory..."
 mkdir -p /var/lib/theia
 
 echo "Installing systemd service..."
 cat > /etc/systemd/system/theia.service << 'EOF'
 [Unit]
-Description=Theia Analytics - Privacy-Friendly Page View Tracker
+Description=theia Analytics - Privacy-Friendly Page View Tracker
 After=network.target nginx.service
 
 [Service]
@@ -109,12 +124,12 @@ ReadOnlyPaths=/var/log/nginx
 WantedBy=multi-user.target
 EOF
 
-echo "Enabling Theia service..."
+echo "Enabling theia service..."
 systemctl daemon-reload
 systemctl enable theia.service
 
 echo ""
-echo "Theia installed successfully!"
+echo "theia installed successfully!"
 echo ""
 echo "Next steps:"
 echo "  1. Start the service:    sudo systemctl start theia"
