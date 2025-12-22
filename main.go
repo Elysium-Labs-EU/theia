@@ -9,6 +9,7 @@ import (
 	"log"
 	"os/exec"
 	"regexp"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -20,6 +21,8 @@ type PageView struct {
 	Referrer  string
 	UserAgent string
 	IPHash    string
+	IsBot     bool
+	IsStatic  bool
 }
 
 func main() {
@@ -64,7 +67,9 @@ func initTable(db *sql.DB) error {
 		path TEXT,
 		referrer TEXT,
 		user_agent TEXT,
-		ip_hash TEXT
+		ip_hash TEXT,
+		is_bot BOOLEAN,
+		is_static BOOLEAN
 	)`
 
 	_, err := db.Exec(query)
@@ -83,13 +88,13 @@ func dbWriter(db *sql.DB, pageViews <-chan PageView) {
 		}
 
 		pageViewQuery := `
-		INSERT INTO pageviews (timestamp, path, referrer, user_agent, ip_hash)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO pageviews (timestamp, path, referrer, user_agent, ip_hash, is_bot, is_static)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		`
 
-		_, err := db.Exec(pageViewQuery, pageView.Timestamp, pageView.Path, pageView.Referrer, pageView.UserAgent, pageView.IPHash)
+		_, err := db.Exec(pageViewQuery, pageView.Timestamp, pageView.Path, pageView.Referrer, pageView.UserAgent, pageView.IPHash, pageView.IsBot, pageView.IsStatic)
 		if err != nil {
-			fmt.Printf("Unable to write pageview into database, got: %v", err)
+			fmt.Printf("Unable to write pageview into database, got: %v\n", err)
 		}
 	}
 }
@@ -99,13 +104,13 @@ func tailLog(logPath string, pageViews chan<- PageView) {
 	tailLogCommand := exec.Command("tail", tailArgs...)
 	readCloser, err := tailLogCommand.StdoutPipe()
 	if err != nil {
-		fmt.Printf("error occured during setting up log reading, got: %v", err)
+		fmt.Printf("error occured during setting up log reading, got: %v\n", err)
 		return
 	}
 
 	err = tailLogCommand.Start()
 	if err != nil {
-		fmt.Printf("error occured during setting starting log reading, got: %v", err)
+		fmt.Printf("error occured during starting log reading, got: %v\n", err)
 		return
 	}
 
@@ -114,7 +119,7 @@ func tailLog(logPath string, pageViews chan<- PageView) {
 		line := scanner.Text()
 		pageView, err := parseNginxLog(line)
 		if err != nil {
-			fmt.Printf("error occured during parsing of the line, got: %v", err)
+			fmt.Printf("error occured during parsing of the line, got: %v\n", err)
 			continue
 		}
 		pageViews <- pageView
@@ -133,21 +138,81 @@ func parseNginxLog(line string) (PageView, error) {
 	timestamp := matches[2]
 	path := matches[4]
 	referrer := matches[5]
-	user_agent := matches[6]
-
-	hashedIPAddress := sha256.Sum256([]byte(ip))
-	hexedIPAddress := hex.EncodeToString(hashedIPAddress[:])
+	userAgent := matches[6]
 
 	parsedTimestamp, err := time.Parse("02/Jan/2006:15:04:05 -0700", timestamp)
 	if err != nil {
 		return PageView{}, fmt.Errorf("failed to parse timestamp")
 	}
 
+	hashedIPAddress := sha256.Sum256([]byte(ip))
+	hexedIPAddress := hex.EncodeToString(hashedIPAddress[:])
+
+	isBot := detectBot(userAgent)
+
+	isStatic := isStaticAsset(path)
+
 	return PageView{
 		Timestamp: parsedTimestamp,
 		Path:      path,
 		Referrer:  referrer,
-		UserAgent: user_agent,
+		UserAgent: userAgent,
 		IPHash:    hexedIPAddress,
+		IsBot:     isBot,
+		IsStatic:  isStatic,
 	}, nil
+}
+
+func detectBot(userAgent string) bool {
+	userAgentLower := strings.ToLower(userAgent)
+
+	botPatterns := []string{
+		"bot", "crawler", "spider", "scraper",
+		"googlebot", "bingbot", "yandexbot", "baiduspider",
+		"facebookexternalhit", "facebot", "twitterbot",
+		"slackbot", "telegrambot", "whatsapp",
+		"lighthouse", "gtmetrix", "pingdom",
+		"headlesschrome", "phantomjs", "selenium",
+		"python-requests", "curl", "wget",
+		"http", "java/", "go-http-client",
+	}
+
+	for _, pattern := range botPatterns {
+		if strings.Contains(userAgentLower, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isStaticAsset(path string) bool {
+	staticExtensions := []string{
+		".css", ".js", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
+		".ico", ".woff", ".woff2", ".ttf", ".eot", ".otf",
+		".mp4", ".webm", ".mp3", ".wav", ".pdf", ".zip",
+		".xml", ".txt", ".json", ".map",
+	}
+
+	pathLower := strings.ToLower(path)
+
+	for _, ext := range staticExtensions {
+		if strings.HasSuffix(pathLower, ext) {
+			return true
+		}
+	}
+
+	staticPaths := []string{
+		"/assets/", "/static/", "/public/",
+		"/images/", "/img/", "/css/", "/js/",
+		"/fonts/", "/media/", "/uploads/",
+	}
+
+	for _, staticPath := range staticPaths {
+		if strings.Contains(pathLower, staticPath) {
+			return true
+		}
+	}
+
+	return false
 }
