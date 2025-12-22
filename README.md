@@ -13,7 +13,8 @@ Install Theia with a single command:
 ```bash
 # Using curl
 curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh | sudo bash
-
+```
+```bash
 # Or using wget
 wget -qO- https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh | sudo bash
 ```
