@@ -73,15 +73,47 @@ Default assumes standard nginx access log location. Adjust based on your nginx c
 
 ### Query Your Data
 
+SQLite command-line tool is automatically installed during setup. Here are some useful queries:
+
 ```bash
-# View all page views
-sudo sqlite3 /var/lib/theia/pageviews.db "SELECT * FROM pageviews;"
+# View all page views (formatted)
+sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+.mode column
+.headers on
+SELECT id, timestamp, path, referrer FROM pageviews LIMIT 10;
+EOF
 
 # Count views by path
-sudo sqlite3 /var/lib/theia/pageviews.db "SELECT path, COUNT(*) FROM pageviews GROUP BY path;"
+sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+.mode column
+.headers on
+SELECT path, COUNT(*) as views FROM pageviews
+GROUP BY path
+ORDER BY views DESC
+LIMIT 20;
+EOF
 
 # Views in last hour
-sudo sqlite3 /var/lib/theia/pageviews.db "SELECT * FROM pageviews WHERE timestamp > datetime('now', '-1 hour');"
+sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+.mode column
+.headers on
+SELECT timestamp, path, referrer FROM pageviews
+WHERE datetime(timestamp) > datetime('now', '-1 hour');
+EOF
+
+# Most common referrers
+sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+.mode column
+.headers on
+SELECT referrer, COUNT(*) as count FROM pageviews
+WHERE referrer != '-'
+GROUP BY referrer
+ORDER BY count DESC
+LIMIT 10;
+EOF
+
+# Export to CSV
+sudo sqlite3 -header -csv /var/lib/theia/pageviews.db "SELECT * FROM pageviews;" > pageviews.csv
 ```
 
 ## Service Management
