@@ -11,15 +11,20 @@ Server-side analytics tool that tracks page views by parsing nginx access logs. 
 Install Theia with a single command:
 
 ```bash
+# Using curl
 curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh | sudo bash
+
+# Or using wget
+wget -qO- https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh | sudo bash
 ```
 
 This will:
 
-1. Download the latest release for your architecture (amd64/arm64)
-2. Install the binary to `/usr/local/bin/theia`
-3. Create a systemd service
-4. Set up the data directory at `/var/lib/theia`
+1. Detect and use curl or wget (whichever is available)
+2. Download the latest release for your architecture (amd64/arm64)
+3. Install the binary to `/usr/local/bin/theia`
+4. Create a systemd service
+5. Set up the data directory at `/var/lib/theia`
 
 Then start the service:
 
