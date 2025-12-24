@@ -29,11 +29,16 @@ type PageView struct {
 }
 
 func main() {
-	db, err := openDB("./pageviews.db")
-	if err != nil {
+	if err := run("./pageviews.db", "/var/log/nginx/access.log"); err != nil {
 		log.Fatal(err)
 	}
-	// TODO: What to do with this error return?
+}
+
+func run(dbPath, logPath string) error {
+	db, err := openDB(dbPath)
+	if err != nil {
+		return err
+	}
 	defer closeDB(db)
 
 	pageViews := make(chan PageView, 100)
@@ -41,7 +46,9 @@ func main() {
 	go dbWriter(db, pageViews)
 	go cleanupOldRecords(db)
 
-	tailLog("/var/log/nginx/access.log", pageViews)
+	tailArgs := []string{"-f", logPath}
+	tailLog(tailArgs, pageViews)
+	return nil
 }
 
 func openDB(dbPath string) (*sql.DB, error) {
@@ -105,8 +112,7 @@ func dbWriter(db *sql.DB, pageViews <-chan PageView) {
 	}
 }
 
-func tailLog(logPath string, pageViews chan<- PageView) {
-	tailArgs := []string{"-f", logPath}
+func tailLog(tailArgs []string, pageViews chan<- PageView) {
 	tailLogCommand := exec.Command("tail", tailArgs...)
 	readCloser, err := tailLogCommand.StdoutPipe()
 	if err != nil {
