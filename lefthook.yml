@@ -4,6 +4,6 @@ pre-commit:
     - name: govet
       run: go vet
 
-    # - name: tests
-    #   run: go test ./cmd ./internal/** -v
-    #   interactive: true
+    - name: tests
+      run: go test ./main -v
+      interactive: true

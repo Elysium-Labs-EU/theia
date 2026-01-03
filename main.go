@@ -7,10 +7,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -23,13 +26,47 @@ type PageView struct {
 	UserAgent  string
 	StatusCode int
 	BytesSent  int
-	IPHash     string
+	IDHash     string
 	IsBot      bool
 	IsStatic   bool
 }
 
+type VisitorHash struct {
+	Hash       string
+	HourBucket int
+	FirstSeen  time.Time
+}
+
+type HourlyStatusCodes struct {
+	Hour       int
+	YearDay    int
+	Year       int
+	Path       string
+	StatusCode int
+	Count      int
+}
+
+type HourlyReferrers struct {
+	Hour     int
+	YearDay  int
+	Year     int
+	Path     string
+	Referrer string
+	Count    int
+}
+
+type HourlyStats struct {
+	Hour           int
+	YearDay        int
+	Year           int
+	Path           string
+	Pageviews      int
+	UniqueVisitors int
+	BotViews       int
+}
+
 func main() {
-	if err := run("./pageviews.db", "/var/log/nginx/access.log"); err != nil {
+	if err := run("./theia.db", "/var/log/nginx/access.log"); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -43,8 +80,13 @@ func run(dbPath, logPath string) error {
 
 	pageViews := make(chan PageView, 100)
 
-	go dbWriter(db, pageViews)
-	go cleanupOldRecords(db)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go processPageviews(db, pageViews)
+	go runPeriodicCleanup(db, time.NewTicker(12*time.Hour), sigChan)
+
+	go handleShutdownSignal(sigChan, pageViews)
 
 	tailArgs := []string{"-f", logPath}
 	tailLog(tailArgs, pageViews)
@@ -57,12 +99,11 @@ func openDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("could not open database: %w", err)
 	}
 
-	err = initTable(db)
+	err = initTables(db)
 
 	if err != nil {
 		return nil, fmt.Errorf("could not initialize table: %w", err)
 	}
-
 	return db, nil
 }
 
@@ -70,29 +111,72 @@ func closeDB(db *sql.DB) error {
 	return db.Close()
 }
 
-func initTable(db *sql.DB) error {
-	query := `
-	CREATE TABLE IF NOT EXISTS pageviews (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		timestamp DATETIME,
-		path TEXT,
-		referrer TEXT,
-		user_agent TEXT,
-		status_code INTEGER,
-		bytes_sent INTEGER,
-		ip_hash TEXT,
-		is_bot BOOLEAN,
-		is_static BOOLEAN
+func initTables(db *sql.DB) error {
+	visitorHashesQuery := `
+	CREATE TABLE IF NOT EXISTS visitor_hashes (
+		hash TEXT PRIMARY KEY,
+		hour_bucket INTEGER,
+		first_seen DATETIME
 	)`
 
-	_, err := db.Exec(query)
+	queryHourlyStats := `
+	CREATE TABLE IF NOT EXISTS hourly_stats (
+		hour INTEGER,
+		year_day INTEGER,
+		year INTEGER,
+		path TEXT,
+		page_views INTEGER DEFAULT 0,
+		unique_visitors INTEGER DEFAULT 0,
+		bot_views INTEGER DEFAULT 0,
+		PRIMARY KEY (hour, year_day, year, path)
+	)`
+
+	queryHourlyStatusCodes := `
+	CREATE TABLE IF NOT EXISTS hourly_status_codes (
+		hour INTEGER,
+		year_day INTEGER,
+		year INTEGER,
+		path TEXT,
+		status_code INTEGER,
+		count INTEGER DEFAULT 0,
+		PRIMARY KEY (hour, year_day, year, path, status_code)
+	)`
+
+	queryHourlyReferrers := `
+	CREATE TABLE IF NOT EXISTS hourly_referrers (
+		hour INTEGER,
+		year_day INTEGER,
+		year INTEGER,
+		path TEXT,
+		referrer TEXT,
+		count INTEGER DEFAULT 0,
+		PRIMARY KEY (hour, year_day, year, path, referrer)
+	)
+	`
+
+	_, err := db.Exec(visitorHashesQuery)
 	if err != nil {
-		return fmt.Errorf("could not create pageviews table, %w", err)
+		return fmt.Errorf("could not create visitor_hashes table, %w", err)
+	}
+
+	_, err = db.Exec(queryHourlyStats)
+	if err != nil {
+		return fmt.Errorf("could not create hourly_stats table, %w", err)
+	}
+
+	_, err = db.Exec(queryHourlyStatusCodes)
+	if err != nil {
+		return fmt.Errorf("could not create hourly_status_codes table, %w", err)
+	}
+
+	_, err = db.Exec(queryHourlyReferrers)
+	if err != nil {
+		return fmt.Errorf("could not create hourly_referrers table, %w", err)
 	}
 	return nil
 }
 
-func dbWriter(db *sql.DB, pageViews <-chan PageView) {
+func processPageviews(db *sql.DB, pageViews <-chan PageView) {
 	for {
 		pageView, ok := <-pageViews
 
@@ -100,14 +184,111 @@ func dbWriter(db *sql.DB, pageViews <-chan PageView) {
 			break
 		}
 
-		pageViewQuery := `
-		INSERT INTO pageviews (timestamp, path, referrer, user_agent, status_code, bytes_sent, ip_hash, is_bot, is_static)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		visitorHashesQuery := `
+		SELECT hash
+		FROM visitor_hashes
+		WHERE hash = ?`
+
+		row := db.QueryRow(visitorHashesQuery, pageView.IDHash)
+
+		var visitorHash string
+		err := row.Scan(&visitorHash)
+		if err == sql.ErrNoRows {
+			visitorHashesUpdateQuery := `
+			INSERT INTO visitor_hashes (hash, hour_bucket, first_seen)
+			VALUES (?, ?, ?)
+			`
+
+			_, err = db.Exec(visitorHashesUpdateQuery, pageView.IDHash, pageView.Timestamp.Hour(), pageView.Timestamp.Format("2006-01-02 15:04:05"))
+			if err != nil {
+				fmt.Printf("Unable to write visitor hash into database, got: %v\n", err)
+			}
+		} else if err != nil {
+			fmt.Printf("Unable to parse visitor hash from database, got: %v\n", err)
+		}
+
+		visitorHourBucketQuery := `
+		SELECT COUNT(hash)
+		FROM visitor_hashes
+		WHERE hour_bucket = ?`
+
+		visitorHashesCount := db.QueryRow(visitorHourBucketQuery, pageView.Timestamp.Hour())
+		var visitorHashesCountResult int
+
+		err = visitorHashesCount.Scan(&visitorHashesCountResult)
+		if err == sql.ErrNoRows {
+			fmt.Print("No visitors found, should have at least one visitor at this point")
+		} else if err != nil {
+			fmt.Printf("Unable to retrieve count of visitor hash from database, got: %v\n", err)
+		}
+
+		hourlyStatsUpdateQuery := `
+		INSERT INTO hourly_stats (hour, year_day, year, path, page_views, unique_visitors, bot_views)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(hour, year_day, year, path) DO UPDATE SET
+			page_views = page_views + ?,
+			unique_visitors = ?,
+			bot_views = bot_views + ? 
 		`
 
-		_, err := db.Exec(pageViewQuery, pageView.Timestamp, pageView.Path, pageView.Referrer, pageView.UserAgent, pageView.StatusCode, pageView.BytesSent, pageView.IPHash, pageView.IsBot, pageView.IsStatic)
+		pageViewIncrement := 0
+		botViewIncrement := 0
+		if pageView.IsBot {
+			botViewIncrement = 1
+		} else {
+			pageViewIncrement = 1
+		}
+
+		_, err = db.Exec(hourlyStatsUpdateQuery,
+			pageView.Timestamp.Hour(),
+			pageView.Timestamp.YearDay(),
+			pageView.Timestamp.Year(),
+			pageView.Path,
+			pageViewIncrement,
+			visitorHashesCountResult,
+			botViewIncrement,
+			pageViewIncrement,
+			visitorHashesCountResult,
+			botViewIncrement)
 		if err != nil {
-			fmt.Printf("Unable to write pageview into database, got: %v\n", err)
+			fmt.Printf("Unable to write hourly stats into database, got: %v\n", err)
+		}
+
+		hourlyStatusCodesUpdateQuery := `
+		INSERT INTO hourly_status_codes (hour, year_day, year, path, status_code, count)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(hour, year_day, year, path, status_code) DO UPDATE SET
+			count = count + ?
+		`
+		_, err = db.Exec(hourlyStatusCodesUpdateQuery,
+			pageView.Timestamp.Hour(),
+			pageView.Timestamp.YearDay(),
+			pageView.Timestamp.Year(),
+			pageView.Path,
+			pageView.StatusCode,
+			1,
+			1)
+		if err != nil {
+			fmt.Printf("Unable to write hourly status codes into database, got: %v\n", err)
+		}
+
+		hourlyReferrersUpdateQuery := `
+		INSERT INTO hourly_referrers (hour, year_day, year, path, referrer, count)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(hour, year_day, year, path, referrer) DO UPDATE SET
+			count = count + ?
+		`
+
+		_, err = db.Exec(hourlyReferrersUpdateQuery,
+			pageView.Timestamp.Hour(),
+			pageView.Timestamp.YearDay(),
+			pageView.Timestamp.Year(),
+			pageView.Path,
+			pageView.Referrer,
+			1,
+			1)
+		if err != nil {
+			fmt.Printf("Unable to write hourly referrers into database, got: %v\n", err)
 		}
 	}
 }
@@ -168,8 +349,9 @@ func parseNginxLog(line string) (PageView, error) {
 		return PageView{}, fmt.Errorf("failed to parse bytes sent")
 	}
 
-	hashedIPAddress := sha256.Sum256([]byte(ip))
-	hexedIPAddress := hex.EncodeToString(hashedIPAddress[:])
+	hashInput := ip + userAgent + time.Now().Format("2006-01-02")
+	hashedID := sha256.Sum256([]byte(hashInput))
+	hashedIDString := hex.EncodeToString(hashedID[:])
 
 	isBot := detectBot(userAgent)
 
@@ -182,44 +364,129 @@ func parseNginxLog(line string) (PageView, error) {
 		BytesSent:  bytesSentAsInt,
 		Referrer:   referrer,
 		UserAgent:  userAgent,
-		IPHash:     hexedIPAddress,
+		IDHash:     hashedIDString,
 		IsBot:      isBot,
 		IsStatic:   isStatic,
 	}, nil
 }
 
-func cleanupOldRecords(db *sql.DB) {
-	err := dbCleanUpOldLogs(db)
-	if err != nil {
-		fmt.Printf("Initial cleanup error: %v\n", err)
-	}
+func handleShutdownSignal(sigChan chan os.Signal, pageViews chan PageView) {
+	<-sigChan
+	log.Println("Shutdown signal received, stopping...")
+	close(pageViews)
+}
 
-	ticker := time.NewTicker(12 * time.Hour)
+func runPeriodicCleanup(db *sql.DB, ticker *time.Ticker, shutdown <-chan os.Signal) {
+	performAllCleanups(db)
+
 	defer ticker.Stop()
 
-	for range ticker.C {
-		err := dbCleanUpOldLogs(db)
-		if err != nil {
-			fmt.Printf("Cleanup error: %v\n", err)
+	for {
+		select {
+		case <-ticker.C:
+			performAllCleanups(db)
+		case <-shutdown:
+			log.Println("Cleanup goroutine shutting down...")
+			return
 		}
 	}
 }
 
-func dbCleanUpOldLogs(db *sql.DB) error {
-	query := `
-	DELETE FROM pageviews WHERE datetime(timestamp) < datetime('now', '-60 days');`
+func performAllCleanups(db *sql.DB) {
+	if deleted, err := dbCleanUpOldHourlyStats(db); err != nil {
+		log.Printf("Hourly stats cleanup error: %v", err)
+	} else {
+		log.Printf("Cleaned up %d old hourly stats records", deleted)
+	}
 
-	result, err := db.Exec(query)
+	if deleted, err := dbCleanUpOldHourlyStatusCodes(db); err != nil {
+		log.Printf("Status codes cleanup error: %v", err)
+	} else {
+		log.Printf("Cleaned up %d old status code records", deleted)
+	}
+
+	if deleted, err := dbCleanUpOldHourlyReferrer(db); err != nil {
+		log.Printf("Referrers cleanup error: %v", err)
+	} else {
+		log.Printf("Cleaned up %d old referrer records", deleted)
+	}
+
+	if deleted, err := dbCleanUpOldVisitorHashes(db); err != nil {
+		log.Printf("Visitor hashes cleanup error: %v", err)
+	} else {
+		log.Printf("Cleaned up %d old visitor hash records", deleted)
+	}
+}
+
+func dbCleanUpOldHourlyStats(db *sql.DB) (int64, error) {
+	cutoffDate := time.Now().AddDate(0, 0, -60)
+	cutoffYear := cutoffDate.Year()
+	cutoffYearDay := cutoffDate.YearDay()
+
+	query := `
+	DELETE FROM hourly_stats 
+	WHERE year < ? 
+	   OR (year = ? AND year_day < ?)`
+
+	result, err := db.Exec(query, cutoffYear, cutoffYear, cutoffYearDay)
 	if err != nil {
-		return fmt.Errorf("could not delete old records, %w", err)
+		return 0, fmt.Errorf("could not delete old hourly stats records, %w", err)
 	}
 
 	rowsDeleted, _ := result.RowsAffected()
-	if rowsDeleted > 0 {
-		fmt.Printf("Cleanup: deleted %d old records\n", rowsDeleted)
+	return rowsDeleted, nil
+}
+
+func dbCleanUpOldHourlyStatusCodes(db *sql.DB) (int64, error) {
+	cutoffDate := time.Now().AddDate(0, 0, -60)
+	cutoffYear := cutoffDate.Year()
+	cutoffYearDay := cutoffDate.YearDay()
+
+	query := `
+	DELETE FROM hourly_status_codes 
+	WHERE year < ? 
+	   OR (year = ? AND year_day < ?)`
+
+	result, err := db.Exec(query, cutoffYear, cutoffYear, cutoffYearDay)
+	if err != nil {
+		return 0, fmt.Errorf("could not delete old hourly status codes records, %w", err)
 	}
 
-	return nil
+	rowsDeleted, _ := result.RowsAffected()
+	return rowsDeleted, nil
+}
+
+func dbCleanUpOldHourlyReferrer(db *sql.DB) (int64, error) {
+	cutoffDate := time.Now().AddDate(0, 0, -60)
+	cutoffYear := cutoffDate.Year()
+	cutoffYearDay := cutoffDate.YearDay()
+
+	query := `
+	DELETE FROM hourly_referrers 
+	WHERE year < ? 
+	   OR (year = ? AND year_day < ?)`
+
+	result, err := db.Exec(query, cutoffYear, cutoffYear, cutoffYearDay)
+	if err != nil {
+		return 0, fmt.Errorf("could not delete old hourly referrer records, %w", err)
+	}
+
+	rowsDeleted, _ := result.RowsAffected()
+	return rowsDeleted, nil
+}
+
+func dbCleanUpOldVisitorHashes(db *sql.DB) (int64, error) {
+	query := `
+	DELETE FROM visitor_hashes
+	WHERE datetime(first_seen) < datetime('now', '-1 day');`
+
+	result, err := db.Exec(query)
+	if err != nil {
+		return 0, fmt.Errorf("could not delete old records, %w", err)
+	}
+
+	rowsDeleted, _ := result.RowsAffected()
+	return rowsDeleted, nil
 }
 
 func detectBot(userAgent string) bool {
