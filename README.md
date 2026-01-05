@@ -8,15 +8,16 @@ Server-side analytics tool that tracks page views by parsing nginx access logs. 
 
 ### Quick Install (Recommended)
 
-Install Theia with a single command:
-
+Using curl
 ```bash
-# Using curl
-curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh
+sudo bash install.sh
+
+Using wget
 ```
 ```bash
-# Or using wget
-wget -qO- https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh
+sudo bash install.sh
 ```
 
 This will:
@@ -78,7 +79,7 @@ Default assumes standard nginx access log location. Adjust based on your nginx c
 SQLite command-line tool is automatically installed during setup. Here are some useful queries:
 
 ```bash
-# View hourly stats for today (non-bot traffic)
+# View hourly stats for today (non-static traffic)
 sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
 .mode column
 .headers on
@@ -87,11 +88,11 @@ SELECT
   path,
   host,
   page_views,
-  unique_visitors,
-  bot_views
+  unique_visitors
 FROM hourly_stats
 WHERE year_day = CAST(strftime('%j', 'now') AS INTEGER)
   AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+  AND is_static = 0 
 ORDER BY hour DESC, page_views DESC;
 EOF
 
@@ -108,6 +109,7 @@ SELECT
 FROM hourly_stats
 WHERE year_day >= CAST(strftime('%j', 'now', '-1 day') AS INTEGER)
   AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+  AND is_static = 0
 GROUP BY path, host
 ORDER BY total_views DESC
 LIMIT 20;
@@ -119,14 +121,17 @@ sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
 .headers on
 SELECT 
   hour,
+  year_day,
+  year,
+  date(year || '-01-01', '+' || (year_day - 1) || ' days') as actual_date,
   SUM(page_views) as total_views,
   SUM(unique_visitors) as total_unique,
   ROUND(AVG(page_views), 2) as avg_views_per_hour
 FROM hourly_stats
-WHERE year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
-  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
-GROUP BY hour
-ORDER BY hour;
+WHERE date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-7 days')
+  AND is_static = 0
+GROUP BY year, year_day, hour
+ORDER BY year, year_day, hour;
 EOF
 
 # Status codes distribution (last 24 hours)
@@ -139,8 +144,7 @@ SELECT
   ROUND(100.0 * SUM(count) / (SELECT SUM(count) FROM hourly_status_codes 
     WHERE year_day >= CAST(strftime('%j', 'now', '-1 day') AS INTEGER)), 2) as percentage
 FROM hourly_status_codes
-WHERE year_day >= CAST(strftime('%j', 'now', '-1 day') AS INTEGER)
-  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+WHERE date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-1 day')
 GROUP BY status_code
 ORDER BY total_count DESC;
 EOF
@@ -155,8 +159,7 @@ SELECT
   SUM(count) as error_count
 FROM hourly_status_codes
 WHERE status_code = 404
-  AND year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
-  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+  AND date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-7 days')
 GROUP BY path, host
 ORDER BY error_count DESC
 LIMIT 20;
@@ -171,14 +174,13 @@ SELECT
   SUM(count) as visit_count
 FROM hourly_referrers
 WHERE referrer != '-' AND referrer != ''
-  AND year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
-  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+  AND date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-7 days')
 GROUP BY referrer
 ORDER BY visit_count DESC
 LIMIT 20;
 EOF
 
-# Referrers by specific page (last 7 days)
+# Referrers by specific page (last 7 days) - Adjust the WHERE clause
 sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
 .mode column
 .headers on
@@ -188,8 +190,7 @@ SELECT
 FROM hourly_referrers
 WHERE path = '/your-page-path'
   AND referrer != '-' AND referrer != ''
-  AND year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
-  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+  AND date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-7 days')
 GROUP BY referrer
 ORDER BY visit_count DESC
 LIMIT 10;
@@ -205,8 +206,7 @@ SELECT
   SUM(unique_visitors) as total_unique_visitors,
   ROUND(100.0 * SUM(bot_views) / (SUM(page_views) + SUM(bot_views)), 2) as bot_percentage
 FROM hourly_stats
-WHERE year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
-  AND year = CAST(strftime('%Y', 'now') AS INTEGER);
+WHERE date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-7 days');
 EOF
 
 # Daily traffic summary (last 30 days)
@@ -220,8 +220,7 @@ SELECT
   SUM(bot_views) as daily_bots,
   COUNT(DISTINCT path) as unique_paths
 FROM hourly_stats
-WHERE year_day >= CAST(strftime('%j', 'now', '-30 days') AS INTEGER)
-  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+WHERE date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-30 days')
 GROUP BY year_day, year
 ORDER BY year DESC, year_day DESC;
 EOF
@@ -236,8 +235,7 @@ SELECT
   ROUND(AVG(page_views), 2) as avg_views,
   MAX(page_views) as peak_views
 FROM hourly_stats
-WHERE year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
-  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+WHERE date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-7 days')
 GROUP BY hour
 ORDER BY total_views DESC
 LIMIT 10;
@@ -267,8 +265,7 @@ SELECT
   SUM(unique_visitors) as uniques,
   ROUND(1.0 * SUM(page_views) / SUM(unique_visitors), 2) as views_per_visitor
 FROM hourly_stats
-WHERE year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
-  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+WHERE date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-7 days')
 GROUP BY host, path
 HAVING views > 10
 ORDER BY views DESC
@@ -278,8 +275,7 @@ EOF
 # Export hourly stats to CSV (last 30 days)
 sudo sqlite3 -header -csv /var/lib/theia/theia.db \
   "SELECT * FROM hourly_stats 
-   WHERE year_day >= CAST(strftime('%j', 'now', '-30 days') AS INTEGER)
-     AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+   WHERE date(year || '-01-01', '+' || (year_day - 1) || ' days') >= date('now', '-30 days')
    ORDER BY year DESC, year_day DESC, hour DESC;" > hourly_stats_export.csv
 
 # Export referrer analysis to CSV
