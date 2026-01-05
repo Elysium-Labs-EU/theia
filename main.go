@@ -65,6 +65,7 @@ type HourlyStats struct {
 	Path           string
 	Host           string
 	Pageviews      int
+	IsStatic       bool
 	UniqueVisitors int
 	BotViews       int
 }
@@ -131,6 +132,7 @@ func initTables(db *sql.DB) error {
 		path TEXT,
 		host TEXT,
 		page_views INTEGER DEFAULT 0,
+		is_static INTEGER DEFAULT 0,
 		unique_visitors INTEGER DEFAULT 0,
 		bot_views INTEGER DEFAULT 0,
 		PRIMARY KEY (hour, year_day, year, path, host)
@@ -230,8 +232,8 @@ func processPageviews(db *sql.DB, pageViews <-chan PageView) {
 		}
 
 		hourlyStatsUpdateQuery := `
-		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, unique_visitors, bot_views)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, is_static, unique_visitors, bot_views)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(hour, year_day, year, path, host) DO UPDATE SET
 			page_views = page_views + ?,
 			unique_visitors = ?,
@@ -253,6 +255,7 @@ func processPageviews(db *sql.DB, pageViews <-chan PageView) {
 			pageView.Path,
 			pageView.Host,
 			pageViewIncrement,
+			pageView.IsStatic,
 			visitorHashesCountResult,
 			botViewIncrement,
 			pageViewIncrement,

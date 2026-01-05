@@ -92,6 +92,7 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 			&hourlyStat.Path,
 			&hourlyStat.Host,
 			&hourlyStat.Pageviews,
+			&hourlyStat.IsStatic,
 			&hourlyStat.UniqueVisitors,
 			&hourlyStat.BotViews,
 		)
@@ -100,6 +101,7 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 		}
 		hourlyStats = append(hourlyStats, hourlyStat)
 	}
+
 	if len(hourlyStats) != 3 {
 		t.Errorf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
 	}
@@ -333,6 +335,7 @@ func TestRunSameDayInThePast(t *testing.T) {
 			&hourlyStat.Path,
 			&hourlyStat.Host,
 			&hourlyStat.Pageviews,
+			&hourlyStat.IsStatic,
 			&hourlyStat.UniqueVisitors,
 			&hourlyStat.BotViews,
 		)
@@ -355,6 +358,9 @@ func TestRunSameDayInThePast(t *testing.T) {
 	if hourlyStats[0].BotViews != 0 {
 		t.Errorf("Expected first entry to have 0 bot view as count, got %d instead\n", hourlyStats[0].BotViews)
 	}
+	if hourlyStats[0].IsStatic {
+		t.Errorf("Expected first entry to have false as is static, got %v instead\n", hourlyStats[0].IsStatic)
+	}
 
 	if hourlyStats[1].Pageviews != 0 {
 		t.Errorf("Expected second entry to have 0 page view as count, got %d instead\n", hourlyStats[1].Pageviews)
@@ -362,12 +368,18 @@ func TestRunSameDayInThePast(t *testing.T) {
 	if hourlyStats[1].BotViews != 1 {
 		t.Errorf("Expected second entry to have 1 bot view as count, got %d instead\n", hourlyStats[1].BotViews)
 	}
+	if hourlyStats[1].IsStatic {
+		t.Errorf("Expected second entry to have false as is static, got %v instead\n", hourlyStats[1].IsStatic)
+	}
 
 	if hourlyStats[2].Pageviews != 1 {
 		t.Errorf("Expected third entry to have 1 page view as count, got %d instead\n", hourlyStats[2].Pageviews)
 	}
 	if hourlyStats[2].BotViews != 0 {
 		t.Errorf("Expected third entry to have 0 bot view as count, got %d instead\n", hourlyStats[2].BotViews)
+	}
+	if !hourlyStats[2].IsStatic {
+		t.Errorf("Expected third entry to have true as is static, got %v instead\n", hourlyStats[2].IsStatic)
 	}
 
 	hourlyStatusCodesQuery := `SELECT * FROM hourly_status_codes`
@@ -563,6 +575,7 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 			&hourlyStat.Path,
 			&hourlyStat.Host,
 			&hourlyStat.Pageviews,
+			&hourlyStat.IsStatic,
 			&hourlyStat.UniqueVisitors,
 			&hourlyStat.BotViews,
 		)
@@ -585,6 +598,9 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 	if hourlyStats[0].BotViews != 0 {
 		t.Errorf("Expected first entry to have 0 bot view as count, got %d instead\n", hourlyStats[0].BotViews)
 	}
+	if hourlyStats[0].IsStatic {
+		t.Errorf("Expected first entry to have false as is static, got %v instead\n", hourlyStats[0].IsStatic)
+	}
 
 	if hourlyStats[1].Pageviews != 0 {
 		t.Errorf("Expected second entry to have 0 page view as count, got %d instead\n", hourlyStats[1].Pageviews)
@@ -592,12 +608,18 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 	if hourlyStats[1].BotViews != 1 {
 		t.Errorf("Expected second entry to have 1 bot view as count, got %d instead\n", hourlyStats[1].BotViews)
 	}
+	if hourlyStats[1].IsStatic {
+		t.Errorf("Expected second entry to have false as is static, got %v instead\n", hourlyStats[1].IsStatic)
+	}
 
 	if hourlyStats[2].Pageviews != 1 {
 		t.Errorf("Expected third entry to have 1 page view as count, got %d instead\n", hourlyStats[2].Pageviews)
 	}
 	if hourlyStats[2].BotViews != 0 {
 		t.Errorf("Expected third entry to have 0 bot view as count, got %d instead\n", hourlyStats[2].BotViews)
+	}
+	if !hourlyStats[2].IsStatic {
+		t.Errorf("Expected third entry to have true as is static, got %v instead\n", hourlyStats[2].IsStatic)
 	}
 
 	hourlyStatusCodesQuery := `SELECT * FROM hourly_status_codes`
@@ -793,6 +815,7 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 			&hourlyStat.Path,
 			&hourlyStat.Host,
 			&hourlyStat.Pageviews,
+			&hourlyStat.IsStatic,
 			&hourlyStat.UniqueVisitors,
 			&hourlyStat.BotViews,
 		)
@@ -815,6 +838,9 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	if hourlyStats[0].BotViews != 0 {
 		t.Errorf("Expected first entry to have 0 bot view as count, got %d instead\n", hourlyStats[0].BotViews)
 	}
+	if hourlyStats[0].IsStatic {
+		t.Errorf("Expected first entry to have false as is static, got %v instead\n", hourlyStats[0].IsStatic)
+	}
 
 	if hourlyStats[1].Pageviews != 0 {
 		t.Errorf("Expected second entry to have 0 page view as count, got %d instead\n", hourlyStats[1].Pageviews)
@@ -822,12 +848,18 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	if hourlyStats[1].BotViews != 1 {
 		t.Errorf("Expected second entry to have 1 bot view as count, got %d instead\n", hourlyStats[1].BotViews)
 	}
+	if hourlyStats[1].IsStatic {
+		t.Errorf("Expected second entry to have false as is static, got %v instead\n", hourlyStats[1].IsStatic)
+	}
 
 	if hourlyStats[2].Pageviews != 1 {
 		t.Errorf("Expected third entry to have 1 page view as count, got %d instead\n", hourlyStats[2].Pageviews)
 	}
 	if hourlyStats[2].BotViews != 0 {
 		t.Errorf("Expected third entry to have 0 bot view as count, got %d instead\n", hourlyStats[2].BotViews)
+	}
+	if !hourlyStats[2].IsStatic {
+		t.Errorf("Expected third entry to have true as is static, got %v instead\n", hourlyStats[2].IsStatic)
 	}
 
 	hourlyStatusCodesQuery := `SELECT * FROM hourly_status_codes`
