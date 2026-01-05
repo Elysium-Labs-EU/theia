@@ -21,6 +21,7 @@ import (
 
 type PageView struct {
 	Timestamp  time.Time
+	Host       string
 	Path       string
 	Referrer   string
 	UserAgent  string
@@ -42,6 +43,7 @@ type HourlyStatusCodes struct {
 	YearDay    int
 	Year       int
 	Path       string
+	Host       string
 	StatusCode int
 	Count      int
 }
@@ -51,6 +53,7 @@ type HourlyReferrers struct {
 	YearDay  int
 	Year     int
 	Path     string
+	Host     string
 	Referrer string
 	Count    int
 }
@@ -60,6 +63,7 @@ type HourlyStats struct {
 	YearDay        int
 	Year           int
 	Path           string
+	Host           string
 	Pageviews      int
 	UniqueVisitors int
 	BotViews       int
@@ -125,10 +129,11 @@ func initTables(db *sql.DB) error {
 		year_day INTEGER,
 		year INTEGER,
 		path TEXT,
+		host TEXT,
 		page_views INTEGER DEFAULT 0,
 		unique_visitors INTEGER DEFAULT 0,
 		bot_views INTEGER DEFAULT 0,
-		PRIMARY KEY (hour, year_day, year, path)
+		PRIMARY KEY (hour, year_day, year, path, host)
 	)`
 
 	queryHourlyStatusCodes := `
@@ -137,9 +142,10 @@ func initTables(db *sql.DB) error {
 		year_day INTEGER,
 		year INTEGER,
 		path TEXT,
+		host TEXT,
 		status_code INTEGER,
 		count INTEGER DEFAULT 0,
-		PRIMARY KEY (hour, year_day, year, path, status_code)
+		PRIMARY KEY (hour, year_day, year, path, host, status_code)
 	)`
 
 	queryHourlyReferrers := `
@@ -148,9 +154,10 @@ func initTables(db *sql.DB) error {
 		year_day INTEGER,
 		year INTEGER,
 		path TEXT,
+		host TEXT,
 		referrer TEXT,
 		count INTEGER DEFAULT 0,
-		PRIMARY KEY (hour, year_day, year, path, referrer)
+		PRIMARY KEY (hour, year_day, year, path, host, referrer)
 	)
 	`
 
@@ -223,9 +230,9 @@ func processPageviews(db *sql.DB, pageViews <-chan PageView) {
 		}
 
 		hourlyStatsUpdateQuery := `
-		INSERT INTO hourly_stats (hour, year_day, year, path, page_views, unique_visitors, bot_views)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(hour, year_day, year, path) DO UPDATE SET
+		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, unique_visitors, bot_views)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(hour, year_day, year, path, host) DO UPDATE SET
 			page_views = page_views + ?,
 			unique_visitors = ?,
 			bot_views = bot_views + ? 
@@ -244,6 +251,7 @@ func processPageviews(db *sql.DB, pageViews <-chan PageView) {
 			pageView.Timestamp.YearDay(),
 			pageView.Timestamp.Year(),
 			pageView.Path,
+			pageView.Host,
 			pageViewIncrement,
 			visitorHashesCountResult,
 			botViewIncrement,
@@ -255,9 +263,9 @@ func processPageviews(db *sql.DB, pageViews <-chan PageView) {
 		}
 
 		hourlyStatusCodesUpdateQuery := `
-		INSERT INTO hourly_status_codes (hour, year_day, year, path, status_code, count)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(hour, year_day, year, path, status_code) DO UPDATE SET
+		INSERT INTO hourly_status_codes (hour, year_day, year, path, host, status_code, count)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(hour, year_day, year, path, host, status_code) DO UPDATE SET
 			count = count + ?
 		`
 		_, err = db.Exec(hourlyStatusCodesUpdateQuery,
@@ -265,6 +273,7 @@ func processPageviews(db *sql.DB, pageViews <-chan PageView) {
 			pageView.Timestamp.YearDay(),
 			pageView.Timestamp.Year(),
 			pageView.Path,
+			pageView.Host,
 			pageView.StatusCode,
 			1,
 			1)
@@ -273,9 +282,9 @@ func processPageviews(db *sql.DB, pageViews <-chan PageView) {
 		}
 
 		hourlyReferrersUpdateQuery := `
-		INSERT INTO hourly_referrers (hour, year_day, year, path, referrer, count)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(hour, year_day, year, path, referrer) DO UPDATE SET
+		INSERT INTO hourly_referrers (hour, year_day, year, path, host, referrer, count)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(hour, year_day, year, path, host, referrer) DO UPDATE SET
 			count = count + ?
 		`
 
@@ -284,6 +293,7 @@ func processPageviews(db *sql.DB, pageViews <-chan PageView) {
 			pageView.Timestamp.YearDay(),
 			pageView.Timestamp.Year(),
 			pageView.Path,
+			pageView.Host,
 			pageView.Referrer,
 			1,
 			1)
@@ -319,14 +329,39 @@ func tailLog(tailArgs []string, pageViews chan<- PageView) {
 	}
 }
 
-func parseNginxLog(line string) (PageView, error) {
-	pattern := `^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) \S+" (\d+) (\d+) "([^"]*)" "([^"]*)"`
-
-	regex := regexp.MustCompile(pattern)
-	matches := regex.FindStringSubmatch(line)
-	if matches == nil {
-		return PageView{}, fmt.Errorf("failed to parse log line")
+func getDefaultHost() string {
+	if host := os.Getenv("THEIA_DEFAULT_HOST"); host != "" {
+		return host
 	}
+	return "default"
+}
+
+var (
+	regexWithHost = regexp.MustCompile(`^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) \S+" (\d+) (\d+) "([^"]*)" "([^"]*)" "([^"]*)"`)
+	regexStandard = regexp.MustCompile(`^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) \S+" (\d+) (\d+) "([^"]*)" "([^"]*)"`)
+)
+
+func determineMatchingPattern(line string) (matches []string, withHost bool, err error) {
+	matchesWithHost := regexWithHost.FindStringSubmatch(line)
+
+	if matchesWithHost != nil {
+		return matchesWithHost, true, nil
+	}
+
+	matchesStandard := regexStandard.FindStringSubmatch(line)
+	if matchesStandard != nil {
+		return matchesStandard, false, nil
+	}
+
+	return nil, false, fmt.Errorf("failed to parse log line")
+}
+
+func parseNginxLog(line string) (PageView, error) {
+	matches, withHost, err := determineMatchingPattern(line)
+	if err != nil {
+		return PageView{}, err
+	}
+
 	ip := matches[1]
 	timestamp := matches[2]
 	// httpMethod := matches[3]
@@ -335,6 +370,12 @@ func parseNginxLog(line string) (PageView, error) {
 	bytesSent := matches[6]
 	referrer := matches[7]
 	userAgent := matches[8]
+	var host string
+	if withHost {
+		host = matches[9]
+	} else {
+		host = getDefaultHost()
+	}
 
 	parsedTimestamp, err := time.Parse("02/Jan/2006:15:04:05 -0700", timestamp)
 	if err != nil {
@@ -359,6 +400,7 @@ func parseNginxLog(line string) (PageView, error) {
 
 	return PageView{
 		Timestamp:  parsedTimestamp,
+		Host:       host,
 		Path:       path,
 		StatusCode: statusCodeAsInt,
 		BytesSent:  bytesSentAsInt,

@@ -18,9 +18,9 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 	logPath := filepath.Join(tempDir, "access.log")
 
 	testLogLines := []string{
-		fmt.Sprintf(`192.168.1.1 - - [%s] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0"`, time.Now().AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
-		fmt.Sprintf(`10.0.0.5 - - [%s] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0"`, time.Now().Add(15*time.Second).AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
-		fmt.Sprintf(`192.168.1.100 - - [%s] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0"`, time.Now().Add(15*time.Second).AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
+		fmt.Sprintf(`192.168.1.1 - - [%s] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0" "example.com"`, time.Now().AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
+		fmt.Sprintf(`10.0.0.5 - - [%s] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
+		fmt.Sprintf(`192.168.1.100 - - [%s] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
 	}
 	createTestLogFile(t, logPath, testLogLines)
 
@@ -90,6 +90,7 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 			&hourlyStat.YearDay,
 			&hourlyStat.Year,
 			&hourlyStat.Path,
+			&hourlyStat.Host,
 			&hourlyStat.Pageviews,
 			&hourlyStat.UniqueVisitors,
 			&hourlyStat.BotViews,
@@ -142,6 +143,7 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 			&hourlyStatusCode.YearDay,
 			&hourlyStatusCode.Year,
 			&hourlyStatusCode.Path,
+			&hourlyStatusCode.Host,
 			&hourlyStatusCode.StatusCode,
 			&hourlyStatusCode.Count,
 		)
@@ -179,6 +181,7 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 			&hourlyReferrer.YearDay,
 			&hourlyReferrer.Year,
 			&hourlyReferrer.Path,
+			&hourlyReferrer.Host,
 			&hourlyReferrer.Referrer,
 			&hourlyReferrer.Count,
 		)
@@ -260,9 +263,9 @@ func TestRunSameDayInThePast(t *testing.T) {
 	logPath := filepath.Join(tempDir, "access.log")
 
 	testLogLines := []string{
-		`192.168.1.1 - - [24/Dec/2024:10:30:45 +0000] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0"`,
-		`10.0.0.5 - - [24/Dec/2024:10:31:00 +0000] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0"`,
-		`192.168.1.100 - - [24/Dec/2024:10:31:15 +0000] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0"`,
+		`192.168.1.1 - - [24/Dec/2024:10:30:45 +0000] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0" "example.com"`,
+		`10.0.0.5 - - [24/Dec/2024:10:31:00 +0000] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0" "example.com"`,
+		`192.168.1.100 - - [24/Dec/2024:10:31:15 +0000] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0" "example.com"`,
 	}
 	createTestLogFile(t, logPath, testLogLines)
 
@@ -328,6 +331,7 @@ func TestRunSameDayInThePast(t *testing.T) {
 			&hourlyStat.YearDay,
 			&hourlyStat.Year,
 			&hourlyStat.Path,
+			&hourlyStat.Host,
 			&hourlyStat.Pageviews,
 			&hourlyStat.UniqueVisitors,
 			&hourlyStat.BotViews,
@@ -380,6 +384,7 @@ func TestRunSameDayInThePast(t *testing.T) {
 			&hourlyStatusCode.YearDay,
 			&hourlyStatusCode.Year,
 			&hourlyStatusCode.Path,
+			&hourlyStatusCode.Host,
 			&hourlyStatusCode.StatusCode,
 			&hourlyStatusCode.Count,
 		)
@@ -417,6 +422,7 @@ func TestRunSameDayInThePast(t *testing.T) {
 			&hourlyReferrer.YearDay,
 			&hourlyReferrer.Year,
 			&hourlyReferrer.Path,
+			&hourlyReferrer.Host,
 			&hourlyReferrer.Referrer,
 			&hourlyReferrer.Count,
 		)
@@ -498,9 +504,9 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 	logPath := filepath.Join(tempDir, "access.log")
 
 	testLogLines := []string{
-		fmt.Sprintf(`192.168.1.1 - - [%s] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0"`, time.Now().AddDate(0, 0, 0).Format("02/Jan/2006:15:04:05 -0700")),
-		fmt.Sprintf(`10.0.0.5 - - [%s] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0"`, time.Now().Add(15*time.Second).AddDate(0, 0, -1).Format("02/Jan/2006:15:04:05 -0700")),
-		fmt.Sprintf(`192.168.1.100 - - [%s] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0"`, time.Now().Add(15*time.Second).AddDate(0, 0, -2).Format("02/Jan/2006:15:04:05 -0700")),
+		fmt.Sprintf(`192.168.1.1 - - [%s] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0" "example.com"`, time.Now().AddDate(0, 0, 0).Format("02/Jan/2006:15:04:05 -0700")),
+		fmt.Sprintf(`10.0.0.5 - - [%s] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -1).Format("02/Jan/2006:15:04:05 -0700")),
+		fmt.Sprintf(`192.168.1.100 - - [%s] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -2).Format("02/Jan/2006:15:04:05 -0700")),
 	}
 	createTestLogFile(t, logPath, testLogLines)
 
@@ -555,6 +561,7 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 			&hourlyStat.YearDay,
 			&hourlyStat.Year,
 			&hourlyStat.Path,
+			&hourlyStat.Host,
 			&hourlyStat.Pageviews,
 			&hourlyStat.UniqueVisitors,
 			&hourlyStat.BotViews,
@@ -607,6 +614,7 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 			&hourlyStatusCode.YearDay,
 			&hourlyStatusCode.Year,
 			&hourlyStatusCode.Path,
+			&hourlyStatusCode.Host,
 			&hourlyStatusCode.StatusCode,
 			&hourlyStatusCode.Count,
 		)
@@ -644,6 +652,7 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 			&hourlyReferrer.YearDay,
 			&hourlyReferrer.Year,
 			&hourlyReferrer.Path,
+			&hourlyReferrer.Host,
 			&hourlyReferrer.Referrer,
 			&hourlyReferrer.Count,
 		)
@@ -725,9 +734,9 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	logPath := filepath.Join(tempDir, "access.log")
 
 	testLogLines := []string{
-		fmt.Sprintf(`192.168.1.1 - - [%s] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0"`, time.Now().AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
-		fmt.Sprintf(`10.0.0.5 - - [%s] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0"`, time.Now().Add(15*time.Second).AddDate(0, 0, -59).Format("02/Jan/2006:15:04:05 -0700")),
-		fmt.Sprintf(`192.168.1.100 - - [%s] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0"`, time.Now().Add(15*time.Second).AddDate(0, 0, -61).Format("02/Jan/2006:15:04:05 -0700")),
+		fmt.Sprintf(`192.168.1.1 - - [%s] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0" "example.com"`, time.Now().AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
+		fmt.Sprintf(`10.0.0.5 - - [%s] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -59).Format("02/Jan/2006:15:04:05 -0700")),
+		fmt.Sprintf(`192.168.1.100 - - [%s] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -61).Format("02/Jan/2006:15:04:05 -0700")),
 	}
 	createTestLogFile(t, logPath, testLogLines)
 
@@ -782,6 +791,7 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 			&hourlyStat.YearDay,
 			&hourlyStat.Year,
 			&hourlyStat.Path,
+			&hourlyStat.Host,
 			&hourlyStat.Pageviews,
 			&hourlyStat.UniqueVisitors,
 			&hourlyStat.BotViews,
@@ -834,6 +844,7 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 			&hourlyStatusCode.YearDay,
 			&hourlyStatusCode.Year,
 			&hourlyStatusCode.Path,
+			&hourlyStatusCode.Host,
 			&hourlyStatusCode.StatusCode,
 			&hourlyStatusCode.Count,
 		)
@@ -871,6 +882,7 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 			&hourlyReferrer.YearDay,
 			&hourlyReferrer.Year,
 			&hourlyReferrer.Path,
+			&hourlyReferrer.Host,
 			&hourlyReferrer.Referrer,
 			&hourlyReferrer.Count,
 		)

@@ -24,8 +24,9 @@ This will:
 1. Detect and use curl or wget (whichever is available)
 2. Download the latest release for your architecture (amd64/arm64)
 3. Install the binary to `/usr/local/bin/theia`
-4. Create a systemd service
-5. Set up the data directory at `/var/lib/theia`
+4. Add custom nginx log formatting for multidomain tracking - if you select so
+5. Create a systemd service
+6. Set up the data directory at `/var/lib/theia`
 
 Then start the service:
 
@@ -77,81 +78,268 @@ Default assumes standard nginx access log location. Adjust based on your nginx c
 SQLite command-line tool is automatically installed during setup. Here are some useful queries:
 
 ```bash
-# View recent successful page views (200s, non-bot)
-sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+# View hourly stats for today (non-bot traffic)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
 .mode column
 .headers on
-SELECT id, timestamp, path, referrer, status_code FROM pageviews
-WHERE status_code = 200 AND is_bot = 0
-ORDER BY timestamp DESC
-LIMIT 10;
+SELECT 
+  hour,
+  path,
+  host,
+  page_views,
+  unique_visitors,
+  bot_views
+FROM hourly_stats
+WHERE year_day = CAST(strftime('%j', 'now') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+ORDER BY hour DESC, page_views DESC;
 EOF
 
-# Count views by path (successful, non-bot only)
-sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+# Most popular pages in the last 24 hours
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
 .mode column
 .headers on
-SELECT path, COUNT(*) as views FROM pageviews
-WHERE status_code = 200 AND is_bot = 0
-GROUP BY path
-ORDER BY views DESC
+SELECT 
+  path,
+  host,
+  SUM(page_views) as total_views,
+  SUM(unique_visitors) as total_unique,
+  SUM(bot_views) as total_bots
+FROM hourly_stats
+WHERE year_day >= CAST(strftime('%j', 'now', '-1 day') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+GROUP BY path, host
+ORDER BY total_views DESC
 LIMIT 20;
 EOF
 
-# All traffic by path (including bots/errors for comparison)
-sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+# Traffic trends by hour of day (last 7 days)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
 .mode column
 .headers on
-SELECT path, status_code, COUNT(*) as views FROM pageviews
-GROUP BY path, status_code
-ORDER BY views DESC
+SELECT 
+  hour,
+  SUM(page_views) as total_views,
+  SUM(unique_visitors) as total_unique,
+  ROUND(AVG(page_views), 2) as avg_views_per_hour
+FROM hourly_stats
+WHERE year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+GROUP BY hour
+ORDER BY hour;
+EOF
+
+# Status codes distribution (last 24 hours)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
+.mode column
+.headers on
+SELECT 
+  status_code,
+  SUM(count) as total_count,
+  ROUND(100.0 * SUM(count) / (SELECT SUM(count) FROM hourly_status_codes 
+    WHERE year_day >= CAST(strftime('%j', 'now', '-1 day') AS INTEGER)), 2) as percentage
+FROM hourly_status_codes
+WHERE year_day >= CAST(strftime('%j', 'now', '-1 day') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+GROUP BY status_code
+ORDER BY total_count DESC;
+EOF
+
+# 404 errors by path (last 7 days)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
+.mode column
+.headers on
+SELECT 
+  path,
+  host,
+  SUM(count) as error_count
+FROM hourly_status_codes
+WHERE status_code = 404
+  AND year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+GROUP BY path, host
+ORDER BY error_count DESC
 LIMIT 20;
 EOF
 
-# Views in last hour (successful pages only)
-sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+# Top referrers (last 7 days)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
 .mode column
 .headers on
-SELECT timestamp, path, referrer, status_code FROM pageviews
-WHERE datetime(timestamp) > datetime('now', '-1 hour')
-AND status_code = 200 AND is_bot = 0
-ORDER BY timestamp DESC;
-EOF
-
-# Most common referrers (for actual traffic)
-sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
-.mode column
-.headers on
-SELECT referrer, COUNT(*) as count FROM pageviews
+SELECT 
+  referrer,
+  SUM(count) as visit_count
+FROM hourly_referrers
 WHERE referrer != '-' AND referrer != ''
-AND status_code = 200 AND is_bot = 0
+  AND year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
 GROUP BY referrer
-ORDER BY count DESC
+ORDER BY visit_count DESC
+LIMIT 20;
+EOF
+
+# Referrers by specific page (last 7 days)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
+.mode column
+.headers on
+SELECT 
+  referrer,
+  SUM(count) as visit_count
+FROM hourly_referrers
+WHERE path = '/your-page-path'
+  AND referrer != '-' AND referrer != ''
+  AND year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+GROUP BY referrer
+ORDER BY visit_count DESC
 LIMIT 10;
 EOF
 
-# Bot activity summary
-sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
+# Bot vs human traffic comparison (last 7 days)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
 .mode column
 .headers on
-SELECT
-  COUNT(*) as total_requests,
-  SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bot_requests,
-  SUM(CASE WHEN status_code = 404 THEN 1 ELSE 0 END) as not_found,
-  SUM(CASE WHEN status_code = 200 AND is_bot = 0 THEN 1 ELSE 0 END) as real_pageviews
-FROM pageviews;
+SELECT 
+  SUM(page_views) as human_views,
+  SUM(bot_views) as bot_views,
+  SUM(unique_visitors) as total_unique_visitors,
+  ROUND(100.0 * SUM(bot_views) / (SUM(page_views) + SUM(bot_views)), 2) as bot_percentage
+FROM hourly_stats
+WHERE year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER);
 EOF
 
-# Cleanup old data (older than 60 days)
-sudo sqlite3 /var/lib/theia/pageviews.db << 'EOF'
-DELETE FROM pageviews
-WHERE datetime(timestamp) < datetime('now', '-60 days');
-SELECT changes() as 'Rows deleted';
+# Daily traffic summary (last 30 days)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
+.mode column
+.headers on
+SELECT 
+  year_day,
+  year,
+  SUM(page_views) as daily_views,
+  SUM(bot_views) as daily_bots,
+  COUNT(DISTINCT path) as unique_paths
+FROM hourly_stats
+WHERE year_day >= CAST(strftime('%j', 'now', '-30 days') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+GROUP BY year_day, year
+ORDER BY year DESC, year_day DESC;
 EOF
 
-# Export real pageviews to CSV
-sudo sqlite3 -header -csv /var/lib/theia/pageviews.db \
-  "SELECT * FROM pageviews WHERE status_code = 200 AND is_bot = 0;" > real_pageviews.csv
+# Peak traffic hours (last 7 days)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
+.mode column
+.headers on
+SELECT 
+  hour,
+  SUM(page_views) as total_views,
+  ROUND(AVG(page_views), 2) as avg_views,
+  MAX(page_views) as peak_views
+FROM hourly_stats
+WHERE year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+GROUP BY hour
+ORDER BY total_views DESC
+LIMIT 10;
+EOF
+
+# Current active unique visitors (from visitor_hashes)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
+.mode column
+.headers on
+SELECT 
+  hour_bucket,
+  COUNT(*) as unique_visitors
+FROM visitor_hashes
+WHERE datetime(first_seen) > datetime('now', '-1 day')
+GROUP BY hour_bucket
+ORDER BY hour_bucket;
+EOF
+
+# Path performance by host (last 7 days)
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
+.mode column
+.headers on
+SELECT 
+  host,
+  path,
+  SUM(page_views) as views,
+  SUM(unique_visitors) as uniques,
+  ROUND(1.0 * SUM(page_views) / SUM(unique_visitors), 2) as views_per_visitor
+FROM hourly_stats
+WHERE year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
+  AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+GROUP BY host, path
+HAVING views > 10
+ORDER BY views DESC
+LIMIT 20;
+EOF
+
+# Export hourly stats to CSV (last 30 days)
+sudo sqlite3 -header -csv /var/lib/theia/theia.db \
+  "SELECT * FROM hourly_stats 
+   WHERE year_day >= CAST(strftime('%j', 'now', '-30 days') AS INTEGER)
+     AND year = CAST(strftime('%Y', 'now') AS INTEGER)
+   ORDER BY year DESC, year_day DESC, hour DESC;" > hourly_stats_export.csv
+
+# Export referrer analysis to CSV
+sudo sqlite3 -header -csv /var/lib/theia/theia.db \
+  "SELECT referrer, path, SUM(count) as total_visits
+   FROM hourly_referrers
+   WHERE year_day >= CAST(strftime('%j', 'now', '-7 days') AS INTEGER)
+     AND referrer != '-' AND referrer != ''
+   GROUP BY referrer, path
+   ORDER BY total_visits DESC;" > referrer_analysis.csv
+
+# Database maintenance - manually trigger old data cleanup
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
+-- Delete stats older than 60 days
+DELETE FROM hourly_stats
+WHERE year < CAST(strftime('%Y', 'now', '-60 days') AS INTEGER)
+   OR (year = CAST(strftime('%Y', 'now', '-60 days') AS INTEGER) 
+       AND year_day < CAST(strftime('%j', 'now', '-60 days') AS INTEGER));
+
+DELETE FROM hourly_status_codes
+WHERE year < CAST(strftime('%Y', 'now', '-60 days') AS INTEGER)
+   OR (year = CAST(strftime('%Y', 'now', '-60 days') AS INTEGER) 
+       AND year_day < CAST(strftime('%j', 'now', '-60 days') AS INTEGER));
+
+DELETE FROM hourly_referrers
+WHERE year < CAST(strftime('%Y', 'now', '-60 days') AS INTEGER)
+   OR (year = CAST(strftime('%Y', 'now', '-60 days') AS INTEGER) 
+       AND year_day < CAST(strftime('%j', 'now', '-60 days') AS INTEGER));
+
+-- Delete old visitor hashes
+DELETE FROM visitor_hashes
+WHERE datetime(first_seen) < datetime('now', '-1 day');
+
+SELECT 'Cleanup complete' as status;
+EOF
+
+# View database size and row counts
+sudo sqlite3 /var/lib/theia/theia.db << 'EOF'
+.mode column
+.headers on
+SELECT 
+  'hourly_stats' as table_name,
+  COUNT(*) as row_count
+FROM hourly_stats
+UNION ALL
+SELECT 
+  'hourly_status_codes',
+  COUNT(*)
+FROM hourly_status_codes
+UNION ALL
+SELECT 
+  'hourly_referrers',
+  COUNT(*)
+FROM hourly_referrers
+UNION ALL
+SELECT 
+  'visitor_hashes',
+  COUNT(*)
+FROM visitor_hashes;
+EOF
 ```
 
 ## Service Management
@@ -184,29 +372,10 @@ sudo systemctl restart theia
 5. Writes to SQLite database asynchronously
 6. Automatically cleans up records older than 60 days (runs every 12 hours)
 
-## Database Schema
-
-```sql
-CREATE TABLE pageviews (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp DATETIME,
-    path TEXT,
-    referrer TEXT,
-    user_agent TEXT,
-    status_code INTEGER,
-    bytes_sent INTEGER,
-    ip_hash TEXT,
-    is_bot BOOLEAN,
-    is_static BOOLEAN
-);
-```
-
-**Data Retention:** Records older than 60 days are automatically deleted every 12 hours to manage database size.
-
 ## Requirements
 
 - Linux with systemd
-- Go 1.21+ (for building from source)
+- Go 1.25+ (for building from source)
 - nginx with standard access log format
 - Root/sudo access (for nginx log access)
 

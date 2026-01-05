@@ -36,5 +36,6 @@ go.work.sum
 .DS_Store
 NOTES.md
 TODO.MD
+test-files*/*
 logs/*
 theia
