@@ -12,9 +12,9 @@ Using curl
 ```bash
 curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh
 sudo bash install.sh
+```
 
 Using wget
-```
 ```bash
 wget -qO- https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh
 sudo bash install.sh
@@ -61,7 +61,7 @@ sudo mkdir -p /var/lib/theia
 # Start tracking (requires root/sudo for log access)
 sudo ./theia
 
-# Database created at ./pageviews.db
+# Database created at ./theia.db
 ```
 
 ### Configuration
@@ -69,7 +69,7 @@ sudo ./theia
 Edit `main.go` to change the log file path:
 
 ```go
-tailLog("/var/log/nginx/access.log", pageViews)
+tailLog([]string{"-f", "/var/log/nginx/access.log"}, pageViews)
 ```
 
 Default assumes standard nginx access log location. Adjust based on your nginx configuration.
@@ -374,12 +374,10 @@ sudo systemctl restart theia
 
 - Linux with systemd
 - Go 1.25+ (for building from source)
-- nginx with standard access log format
 - Root/sudo access (for nginx log access)
 
 ## Limitations
 
 - Only tracks page views (no client-side events)
 - Data loss possible during crashes or restarts
-- Requires standard nginx log format
 - No built-in dashboard (query SQLite directly)
