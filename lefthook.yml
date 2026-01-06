@@ -5,5 +5,5 @@ pre-commit:
       run: go vet
 
     - name: tests
-      run: go test ./main -v
+      run: go test . ./database -v
       interactive: true

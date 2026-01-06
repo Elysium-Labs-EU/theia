@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"theia/database"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -76,12 +77,26 @@ func main() {
 	}
 }
 
-func run(dbPath, logPath string) error {
-	db, err := openDB(dbPath)
+func run(dbPath string, logPath string) error {
+	db, err := database.Open(dbPath)
 	if err != nil {
 		return err
 	}
-	defer closeDB(db)
+	defer database.Close(db)
+
+	if err := database.RunMigrations(db, "./database/migrations"); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	version, dirty, err := database.GetCurrentVersion(db, "./database/migrations")
+	if err != nil {
+		log.Printf("Warning: Could not get schema version: %v", err)
+	} else {
+		log.Printf("Database schema version: %d (dirty: %v)", version, dirty)
+		if dirty {
+			log.Fatal("Database is in a dirty state. Manual intervention required.")
+		}
+	}
 
 	pageViews := make(chan PageView, 100)
 
@@ -95,93 +110,6 @@ func run(dbPath, logPath string) error {
 
 	tailArgs := []string{"-f", logPath}
 	tailLog(tailArgs, pageViews)
-	return nil
-}
-
-func openDB(dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not open database: %w", err)
-	}
-
-	err = initTables(db)
-
-	if err != nil {
-		return nil, fmt.Errorf("could not initialize table: %w", err)
-	}
-	return db, nil
-}
-
-func closeDB(db *sql.DB) error {
-	return db.Close()
-}
-
-func initTables(db *sql.DB) error {
-	visitorHashesQuery := `
-	CREATE TABLE IF NOT EXISTS visitor_hashes (
-		hash TEXT PRIMARY KEY,
-		hour_bucket INTEGER,
-		first_seen DATETIME
-	)`
-
-	queryHourlyStats := `
-	CREATE TABLE IF NOT EXISTS hourly_stats (
-		hour INTEGER,
-		year_day INTEGER,
-		year INTEGER,
-		path TEXT,
-		host TEXT,
-		page_views INTEGER DEFAULT 0,
-		is_static INTEGER DEFAULT 0,
-		unique_visitors INTEGER DEFAULT 0,
-		bot_views INTEGER DEFAULT 0,
-		PRIMARY KEY (hour, year_day, year, path, host)
-	)`
-
-	queryHourlyStatusCodes := `
-	CREATE TABLE IF NOT EXISTS hourly_status_codes (
-		hour INTEGER,
-		year_day INTEGER,
-		year INTEGER,
-		path TEXT,
-		host TEXT,
-		status_code INTEGER,
-		count INTEGER DEFAULT 0,
-		PRIMARY KEY (hour, year_day, year, path, host, status_code)
-	)`
-
-	queryHourlyReferrers := `
-	CREATE TABLE IF NOT EXISTS hourly_referrers (
-		hour INTEGER,
-		year_day INTEGER,
-		year INTEGER,
-		path TEXT,
-		host TEXT,
-		referrer TEXT,
-		count INTEGER DEFAULT 0,
-		PRIMARY KEY (hour, year_day, year, path, host, referrer)
-	)
-	`
-
-	_, err := db.Exec(visitorHashesQuery)
-	if err != nil {
-		return fmt.Errorf("could not create visitor_hashes table, %w", err)
-	}
-
-	_, err = db.Exec(queryHourlyStats)
-	if err != nil {
-		return fmt.Errorf("could not create hourly_stats table, %w", err)
-	}
-
-	_, err = db.Exec(queryHourlyStatusCodes)
-	if err != nil {
-		return fmt.Errorf("could not create hourly_status_codes table, %w", err)
-	}
-
-	_, err = db.Exec(queryHourlyReferrers)
-	if err != nil {
-		return fmt.Errorf("could not create hourly_referrers table, %w", err)
-	}
 	return nil
 }
 

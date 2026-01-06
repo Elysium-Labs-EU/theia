@@ -8,12 +8,13 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"theia/database"
 	"time"
 )
 
 func TestRunSameDay20DaysAgo(t *testing.T) {
 	db, tempDir := setupTestDB(t)
-	defer closeDB(db)
+	defer database.Close(db)
 
 	logPath := filepath.Join(tempDir, "access.log")
 
@@ -37,71 +38,15 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 
 	wg.Wait()
 
-	visitorHashesQuery := `SELECT * FROM visitor_hashes`
-	visitorRows, err := db.Query(visitorHashesQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for vistor hashes: %v", err)
-	}
-	defer visitorRows.Close()
-	var visitorHashes []VisitorHash
-	for visitorRows.Next() {
-		var visitorHash VisitorHash
-		err := visitorRows.Scan(
-			&visitorHash.Hash,
-			&visitorHash.HourBucket,
-			&visitorHash.FirstSeen,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database visitor hash output, %v", err)
-		}
-		visitorHashes = append(visitorHashes, visitorHash)
-	}
-
+	t.Log("Starting visitorHash tests")
+	visitorHashes := getVisitorHash(t, db)
 	if len(visitorHashes) != 3 {
 		t.Errorf("Expected 3 entries in visitor hash table, got %d instead", len(visitorHashes))
 	}
+	t.Log("All visitorHash tests passed")
 
-	// allInSameHourBucket := true
-	// hourBucket := 0
-	// for index, visitorHash := range visitorHashes {
-	// 	if index == 0 {
-	// 		hourBucket = visitorHash.HourBucket
-	// 		continue
-	// 	} else if visitorHash.HourBucket != hourBucket {
-	// 		allInSameHourBucket = false
-	// 		break
-	// 	}
-	// }
-	// if !allInSameHourBucket {
-	// 	t.Errorf("Expected all the entries to be in the same hour bucket")
-	// }
-
-	hourlyStatsQuery := `SELECT * FROM hourly_stats`
-	hourlyStatsRows, err := db.Query(hourlyStatsQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly stats: %v", err)
-	}
-	defer hourlyStatsRows.Close()
-	var hourlyStats []HourlyStats
-	for hourlyStatsRows.Next() {
-		var hourlyStat HourlyStats
-		err := hourlyStatsRows.Scan(
-			&hourlyStat.Hour,
-			&hourlyStat.YearDay,
-			&hourlyStat.Year,
-			&hourlyStat.Path,
-			&hourlyStat.Host,
-			&hourlyStat.Pageviews,
-			&hourlyStat.IsStatic,
-			&hourlyStat.UniqueVisitors,
-			&hourlyStat.BotViews,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly stat output, %v", err)
-		}
-		hourlyStats = append(hourlyStats, hourlyStat)
-	}
-
+	t.Log("Starting hourlyStats tests")
+	hourlyStats := getHourlyStats(t, db)
 	if len(hourlyStats) != 3 {
 		t.Errorf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
 	}
@@ -130,30 +75,10 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 	if hourlyStats[2].BotViews != 0 {
 		t.Errorf("Expected third entry to have 0 bot view as count, got %d instead\n", hourlyStats[2].BotViews)
 	}
+	t.Log("All hourlyStats tests passed")
 
-	hourlyStatusCodesQuery := `SELECT * FROM hourly_status_codes`
-	hourlyStatusCodesRows, err := db.Query(hourlyStatusCodesQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly status codes: %v", err)
-	}
-	defer hourlyStatusCodesRows.Close()
-	var hourlyStatusCodes []HourlyStatusCodes
-	for hourlyStatusCodesRows.Next() {
-		var hourlyStatusCode HourlyStatusCodes
-		err := hourlyStatusCodesRows.Scan(
-			&hourlyStatusCode.Hour,
-			&hourlyStatusCode.YearDay,
-			&hourlyStatusCode.Year,
-			&hourlyStatusCode.Path,
-			&hourlyStatusCode.Host,
-			&hourlyStatusCode.StatusCode,
-			&hourlyStatusCode.Count,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly status code output, %v", err)
-		}
-		hourlyStatusCodes = append(hourlyStatusCodes, hourlyStatusCode)
-	}
+	t.Log("Starting hourlyStatusCodes tests")
+	hourlyStatusCodes := getHourlyStatusCodes(t, db)
 	if len(hourlyStatusCodes) != 3 {
 		t.Errorf("Expected 3 entries in hourly status codes table, got %d instead", len(hourlyStatusCodes))
 	}
@@ -168,30 +93,10 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 	if !all200StatusCodes {
 		t.Errorf("Expected all the entries to have 200 status code")
 	}
+	t.Log("All hourlyStatusCodes tests passed")
 
-	hourlyReferrersQuery := `SELECT * FROM hourly_referrers`
-	hourlyReferrersRows, err := db.Query(hourlyReferrersQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly referrers: %v", err)
-	}
-	defer hourlyReferrersRows.Close()
-	var hourlyReferrers []HourlyReferrers
-	for hourlyReferrersRows.Next() {
-		var hourlyReferrer HourlyReferrers
-		err := hourlyReferrersRows.Scan(
-			&hourlyReferrer.Hour,
-			&hourlyReferrer.YearDay,
-			&hourlyReferrer.Year,
-			&hourlyReferrer.Path,
-			&hourlyReferrer.Host,
-			&hourlyReferrer.Referrer,
-			&hourlyReferrer.Count,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly referrers output, %v", err)
-		}
-		hourlyReferrers = append(hourlyReferrers, hourlyReferrer)
-	}
+	t.Log("Starting hourlyReferrer tests")
+	hourlyReferrers := getHourlyReferrers(t, db)
 	if len(hourlyReferrers) != 3 {
 		t.Errorf("Expected 3 entries in hourly referrers table, got %d instead", len(hourlyReferrers))
 	}
@@ -206,7 +111,9 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 	if !allReferrerCountIsOne {
 		t.Errorf("Expected all the entries to have 1 as count")
 	}
+	t.Log("All hourlyReferrer tests passed")
 
+	t.Log("Starting periodicCleanUp tests")
 	ticker := time.NewTicker(1 * time.Second)
 	shutdown := make(chan os.Signal, 1)
 
@@ -218,7 +125,7 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 	wg.Wait()
 
 	var hourly_stats_count int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourly_stats_count)
+	err := db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourly_stats_count)
 	if err != nil {
 		t.Fatalf("Failed to count records: %v", err)
 	}
@@ -256,11 +163,12 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 	if visitor_hashes_count != 0 {
 		t.Errorf("Expected 0 visitor_hashes record remaining, got %d", visitor_hashes_count)
 	}
+	t.Log("All periodicCleanUp tests passed")
 }
 
 func TestRunSameDayInThePast(t *testing.T) {
 	db, tempDir := setupTestDB(t)
-	defer closeDB(db)
+	defer database.Close(db)
 
 	logPath := filepath.Join(tempDir, "access.log")
 
@@ -284,29 +192,12 @@ func TestRunSameDayInThePast(t *testing.T) {
 
 	wg.Wait()
 
-	visitorHashesQuery := `SELECT * FROM visitor_hashes`
-	visitorRows, err := db.Query(visitorHashesQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for vistor hashes: %v", err)
-	}
-	defer visitorRows.Close()
-	var visitorHashes []VisitorHash
-	for visitorRows.Next() {
-		var visitorHash VisitorHash
-		err := visitorRows.Scan(
-			&visitorHash.Hash,
-			&visitorHash.HourBucket,
-			&visitorHash.FirstSeen,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database visitor hash output, %v", err)
-		}
-		visitorHashes = append(visitorHashes, visitorHash)
-	}
-
+	t.Log("Starting visitorHash tests")
+	visitorHashes := getVisitorHash(t, db)
 	if len(visitorHashes) != 3 {
 		t.Errorf("Expected 3 entries in visitor hash table, got %d instead", len(visitorHashes))
 	}
+	t.Log("All visitorHash tests passed")
 
 	allInHourBucket10 := true
 	for _, visitorHash := range visitorHashes {
@@ -319,31 +210,8 @@ func TestRunSameDayInThePast(t *testing.T) {
 		t.Errorf("Expected all the entries to be in the 10 hour bucket")
 	}
 
-	hourlyStatsQuery := `SELECT * FROM hourly_stats`
-	hourlyStatsRows, err := db.Query(hourlyStatsQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly stats: %v", err)
-	}
-	defer hourlyStatsRows.Close()
-	var hourlyStats []HourlyStats
-	for hourlyStatsRows.Next() {
-		var hourlyStat HourlyStats
-		err := hourlyStatsRows.Scan(
-			&hourlyStat.Hour,
-			&hourlyStat.YearDay,
-			&hourlyStat.Year,
-			&hourlyStat.Path,
-			&hourlyStat.Host,
-			&hourlyStat.Pageviews,
-			&hourlyStat.IsStatic,
-			&hourlyStat.UniqueVisitors,
-			&hourlyStat.BotViews,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly stat output, %v", err)
-		}
-		hourlyStats = append(hourlyStats, hourlyStat)
-	}
+	t.Log("Starting hourlyStats tests")
+	hourlyStats := getHourlyStats(t, db)
 	if len(hourlyStats) != 3 {
 		t.Errorf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
 	}
@@ -381,30 +249,10 @@ func TestRunSameDayInThePast(t *testing.T) {
 	if !hourlyStats[2].IsStatic {
 		t.Errorf("Expected third entry to have true as is static, got %v instead\n", hourlyStats[2].IsStatic)
 	}
+	t.Log("All hourlyStats tests passed")
 
-	hourlyStatusCodesQuery := `SELECT * FROM hourly_status_codes`
-	hourlyStatusCodesRows, err := db.Query(hourlyStatusCodesQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly status codes: %v", err)
-	}
-	defer hourlyStatusCodesRows.Close()
-	var hourlyStatusCodes []HourlyStatusCodes
-	for hourlyStatusCodesRows.Next() {
-		var hourlyStatusCode HourlyStatusCodes
-		err := hourlyStatusCodesRows.Scan(
-			&hourlyStatusCode.Hour,
-			&hourlyStatusCode.YearDay,
-			&hourlyStatusCode.Year,
-			&hourlyStatusCode.Path,
-			&hourlyStatusCode.Host,
-			&hourlyStatusCode.StatusCode,
-			&hourlyStatusCode.Count,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly status code output, %v", err)
-		}
-		hourlyStatusCodes = append(hourlyStatusCodes, hourlyStatusCode)
-	}
+	t.Log("Starting hourlyStatusCodes tests")
+	hourlyStatusCodes := getHourlyStatusCodes(t, db)
 	if len(hourlyStatusCodes) != 3 {
 		t.Errorf("Expected 3 entries in hourly status codes table, got %d instead", len(hourlyStatusCodes))
 	}
@@ -419,30 +267,10 @@ func TestRunSameDayInThePast(t *testing.T) {
 	if !all200StatusCodes {
 		t.Errorf("Expected all the entries to have 200 status code")
 	}
+	t.Log("All hourlyStatusCodes tests passed")
 
-	hourlyReferrersQuery := `SELECT * FROM hourly_referrers`
-	hourlyReferrersRows, err := db.Query(hourlyReferrersQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly referrers: %v", err)
-	}
-	defer hourlyReferrersRows.Close()
-	var hourlyReferrers []HourlyReferrers
-	for hourlyReferrersRows.Next() {
-		var hourlyReferrer HourlyReferrers
-		err := hourlyReferrersRows.Scan(
-			&hourlyReferrer.Hour,
-			&hourlyReferrer.YearDay,
-			&hourlyReferrer.Year,
-			&hourlyReferrer.Path,
-			&hourlyReferrer.Host,
-			&hourlyReferrer.Referrer,
-			&hourlyReferrer.Count,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly referrers output, %v", err)
-		}
-		hourlyReferrers = append(hourlyReferrers, hourlyReferrer)
-	}
+	t.Log("Starting hourlyReferrer tests")
+	hourlyReferrers := getHourlyReferrers(t, db)
 	if len(hourlyReferrers) != 3 {
 		t.Errorf("Expected 3 entries in hourly referrers table, got %d instead", len(hourlyReferrers))
 	}
@@ -457,7 +285,9 @@ func TestRunSameDayInThePast(t *testing.T) {
 	if !allReferrerCountIsOne {
 		t.Errorf("Expected all the entries to have 1 as count")
 	}
+	t.Log("All hourlyReferrer tests passed")
 
+	t.Log("Starting periodicCleanUp tests")
 	ticker := time.NewTicker(1 * time.Second)
 	shutdown := make(chan os.Signal, 1)
 
@@ -469,7 +299,7 @@ func TestRunSameDayInThePast(t *testing.T) {
 	wg.Wait()
 
 	var hourly_stats_count int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourly_stats_count)
+	err := db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourly_stats_count)
 	if err != nil {
 		t.Fatalf("Failed to count records: %v", err)
 	}
@@ -507,11 +337,12 @@ func TestRunSameDayInThePast(t *testing.T) {
 	if visitor_hashes_count != 0 {
 		t.Errorf("Expected 0 visitor_hashes record remaining, got %d", visitor_hashes_count)
 	}
+	t.Log("All periodicCleanUp tests passed")
 }
 
 func TestRunDifferentDaysInNearPast(t *testing.T) {
 	db, tempDir := setupTestDB(t)
-	defer closeDB(db)
+	defer database.Close(db)
 
 	logPath := filepath.Join(tempDir, "access.log")
 
@@ -535,55 +366,15 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 
 	wg.Wait()
 
-	visitorHashesQuery := `SELECT * FROM visitor_hashes`
-	visitorRows, err := db.Query(visitorHashesQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for vistor hashes: %v", err)
-	}
-	defer visitorRows.Close()
-	var visitorHashes []VisitorHash
-	for visitorRows.Next() {
-		var visitorHash VisitorHash
-		err := visitorRows.Scan(
-			&visitorHash.Hash,
-			&visitorHash.HourBucket,
-			&visitorHash.FirstSeen,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database visitor hash output, %v", err)
-		}
-		visitorHashes = append(visitorHashes, visitorHash)
-	}
-
+	t.Log("Starting visitorHash tests")
+	visitorHashes := getVisitorHash(t, db)
 	if len(visitorHashes) != 3 {
 		t.Errorf("Expected 3 entries in visitor hash table, got %d instead", len(visitorHashes))
 	}
+	t.Log("All visitorHash tests passed")
 
-	hourlyStatsQuery := `SELECT * FROM hourly_stats`
-	hourlyStatsRows, err := db.Query(hourlyStatsQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly stats: %v", err)
-	}
-	defer hourlyStatsRows.Close()
-	var hourlyStats []HourlyStats
-	for hourlyStatsRows.Next() {
-		var hourlyStat HourlyStats
-		err := hourlyStatsRows.Scan(
-			&hourlyStat.Hour,
-			&hourlyStat.YearDay,
-			&hourlyStat.Year,
-			&hourlyStat.Path,
-			&hourlyStat.Host,
-			&hourlyStat.Pageviews,
-			&hourlyStat.IsStatic,
-			&hourlyStat.UniqueVisitors,
-			&hourlyStat.BotViews,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly stat output, %v", err)
-		}
-		hourlyStats = append(hourlyStats, hourlyStat)
-	}
+	t.Log("Starting hourlyStats tests")
+	hourlyStats := getHourlyStats(t, db)
 	if len(hourlyStats) != 3 {
 		t.Errorf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
 	}
@@ -621,30 +412,10 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 	if !hourlyStats[2].IsStatic {
 		t.Errorf("Expected third entry to have true as is static, got %v instead\n", hourlyStats[2].IsStatic)
 	}
+	t.Log("All hourlyStats tests passed")
 
-	hourlyStatusCodesQuery := `SELECT * FROM hourly_status_codes`
-	hourlyStatusCodesRows, err := db.Query(hourlyStatusCodesQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly status codes: %v", err)
-	}
-	defer hourlyStatusCodesRows.Close()
-	var hourlyStatusCodes []HourlyStatusCodes
-	for hourlyStatusCodesRows.Next() {
-		var hourlyStatusCode HourlyStatusCodes
-		err := hourlyStatusCodesRows.Scan(
-			&hourlyStatusCode.Hour,
-			&hourlyStatusCode.YearDay,
-			&hourlyStatusCode.Year,
-			&hourlyStatusCode.Path,
-			&hourlyStatusCode.Host,
-			&hourlyStatusCode.StatusCode,
-			&hourlyStatusCode.Count,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly status code output, %v", err)
-		}
-		hourlyStatusCodes = append(hourlyStatusCodes, hourlyStatusCode)
-	}
+	t.Log("Starting hourlyStatusCodes tests")
+	hourlyStatusCodes := getHourlyStatusCodes(t, db)
 	if len(hourlyStatusCodes) != 3 {
 		t.Errorf("Expected 3 entries in hourly status codes table, got %d instead", len(hourlyStatusCodes))
 	}
@@ -659,30 +430,10 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 	if !all200StatusCodes {
 		t.Errorf("Expected all the entries to have 200 status code")
 	}
+	t.Log("All hourlyStatusCodes tests passed")
 
-	hourlyReferrersQuery := `SELECT * FROM hourly_referrers`
-	hourlyReferrersRows, err := db.Query(hourlyReferrersQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly referrers: %v", err)
-	}
-	defer hourlyReferrersRows.Close()
-	var hourlyReferrers []HourlyReferrers
-	for hourlyReferrersRows.Next() {
-		var hourlyReferrer HourlyReferrers
-		err := hourlyReferrersRows.Scan(
-			&hourlyReferrer.Hour,
-			&hourlyReferrer.YearDay,
-			&hourlyReferrer.Year,
-			&hourlyReferrer.Path,
-			&hourlyReferrer.Host,
-			&hourlyReferrer.Referrer,
-			&hourlyReferrer.Count,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly referrers output, %v", err)
-		}
-		hourlyReferrers = append(hourlyReferrers, hourlyReferrer)
-	}
+	t.Log("Starting hourlyReferrer tests")
+	hourlyReferrers := getHourlyReferrers(t, db)
 	if len(hourlyReferrers) != 3 {
 		t.Errorf("Expected 3 entries in hourly referrers table, got %d instead", len(hourlyReferrers))
 	}
@@ -697,7 +448,9 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 	if !allReferrerCountIsOne {
 		t.Errorf("Expected all the entries to have 1 as count")
 	}
+	t.Log("All hourlyReferrer tests passed")
 
+	t.Log("Starting periodicCleanUp tests")
 	ticker := time.NewTicker(1 * time.Second)
 	shutdown := make(chan os.Signal, 1)
 
@@ -709,7 +462,7 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 	wg.Wait()
 
 	var hourly_stats_count int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourly_stats_count)
+	err := db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourly_stats_count)
 	if err != nil {
 		t.Fatalf("Failed to count records: %v", err)
 	}
@@ -747,11 +500,12 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 	if visitor_hashes_count != 2 {
 		t.Errorf("Expected 2 visitor_hashes record remaining, got %d", visitor_hashes_count)
 	}
+	t.Log("All periodicCleanUp tests passed")
 }
 
 func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	db, tempDir := setupTestDB(t)
-	defer closeDB(db)
+	defer database.Close(db)
 
 	logPath := filepath.Join(tempDir, "access.log")
 
@@ -775,55 +529,15 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 
 	wg.Wait()
 
-	visitorHashesQuery := `SELECT * FROM visitor_hashes`
-	visitorRows, err := db.Query(visitorHashesQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for vistor hashes: %v", err)
-	}
-	defer visitorRows.Close()
-	var visitorHashes []VisitorHash
-	for visitorRows.Next() {
-		var visitorHash VisitorHash
-		err := visitorRows.Scan(
-			&visitorHash.Hash,
-			&visitorHash.HourBucket,
-			&visitorHash.FirstSeen,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database visitor hash output, %v", err)
-		}
-		visitorHashes = append(visitorHashes, visitorHash)
-	}
-
+	t.Log("Starting visitorHash tests")
+	visitorHashes := getVisitorHash(t, db)
 	if len(visitorHashes) != 3 {
 		t.Errorf("Expected 3 entries in visitor hash table, got %d instead", len(visitorHashes))
 	}
+	t.Log("All visitorHash tests passed")
 
-	hourlyStatsQuery := `SELECT * FROM hourly_stats`
-	hourlyStatsRows, err := db.Query(hourlyStatsQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly stats: %v", err)
-	}
-	defer hourlyStatsRows.Close()
-	var hourlyStats []HourlyStats
-	for hourlyStatsRows.Next() {
-		var hourlyStat HourlyStats
-		err := hourlyStatsRows.Scan(
-			&hourlyStat.Hour,
-			&hourlyStat.YearDay,
-			&hourlyStat.Year,
-			&hourlyStat.Path,
-			&hourlyStat.Host,
-			&hourlyStat.Pageviews,
-			&hourlyStat.IsStatic,
-			&hourlyStat.UniqueVisitors,
-			&hourlyStat.BotViews,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly stat output, %v", err)
-		}
-		hourlyStats = append(hourlyStats, hourlyStat)
-	}
+	t.Log("Starting hourlyStats tests")
+	hourlyStats := getHourlyStats(t, db)
 	if len(hourlyStats) != 3 {
 		t.Errorf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
 	}
@@ -861,30 +575,10 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	if !hourlyStats[2].IsStatic {
 		t.Errorf("Expected third entry to have true as is static, got %v instead\n", hourlyStats[2].IsStatic)
 	}
+	t.Log("All hourlyStats tests passed")
 
-	hourlyStatusCodesQuery := `SELECT * FROM hourly_status_codes`
-	hourlyStatusCodesRows, err := db.Query(hourlyStatusCodesQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly status codes: %v", err)
-	}
-	defer hourlyStatusCodesRows.Close()
-	var hourlyStatusCodes []HourlyStatusCodes
-	for hourlyStatusCodesRows.Next() {
-		var hourlyStatusCode HourlyStatusCodes
-		err := hourlyStatusCodesRows.Scan(
-			&hourlyStatusCode.Hour,
-			&hourlyStatusCode.YearDay,
-			&hourlyStatusCode.Year,
-			&hourlyStatusCode.Path,
-			&hourlyStatusCode.Host,
-			&hourlyStatusCode.StatusCode,
-			&hourlyStatusCode.Count,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly status code output, %v", err)
-		}
-		hourlyStatusCodes = append(hourlyStatusCodes, hourlyStatusCode)
-	}
+	t.Log("Starting hourlyStatusCodes tests")
+	hourlyStatusCodes := getHourlyStatusCodes(t, db)
 	if len(hourlyStatusCodes) != 3 {
 		t.Errorf("Expected 3 entries in hourly status codes table, got %d instead", len(hourlyStatusCodes))
 	}
@@ -899,30 +593,10 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	if !all200StatusCodes {
 		t.Errorf("Expected all the entries to have 200 status code")
 	}
+	t.Log("All hourlyStatusCodes tests passed")
 
-	hourlyReferrersQuery := `SELECT * FROM hourly_referrers`
-	hourlyReferrersRows, err := db.Query(hourlyReferrersQuery)
-	if err != nil {
-		t.Fatalf("could not query the database for hourly referrers: %v", err)
-	}
-	defer hourlyReferrersRows.Close()
-	var hourlyReferrers []HourlyReferrers
-	for hourlyReferrersRows.Next() {
-		var hourlyReferrer HourlyReferrers
-		err := hourlyReferrersRows.Scan(
-			&hourlyReferrer.Hour,
-			&hourlyReferrer.YearDay,
-			&hourlyReferrer.Year,
-			&hourlyReferrer.Path,
-			&hourlyReferrer.Host,
-			&hourlyReferrer.Referrer,
-			&hourlyReferrer.Count,
-		)
-		if err != nil {
-			t.Fatalf("unable to parse database hourly referrers output, %v", err)
-		}
-		hourlyReferrers = append(hourlyReferrers, hourlyReferrer)
-	}
+	t.Log("Starting hourlyReferrer tests")
+	hourlyReferrers := getHourlyReferrers(t, db)
 	if len(hourlyReferrers) != 3 {
 		t.Errorf("Expected 3 entries in hourly referrers table, got %d instead", len(hourlyReferrers))
 	}
@@ -937,7 +611,9 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	if !allReferrerCountIsOne {
 		t.Errorf("Expected all the entries to have 1 as count")
 	}
+	t.Log("All hourlyReferrer tests passed")
 
+	t.Log("Starting periodicCleanUp tests")
 	ticker := time.NewTicker(1 * time.Second)
 	shutdown := make(chan os.Signal, 1)
 
@@ -949,7 +625,7 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	wg.Wait()
 
 	var hourly_stats_count int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourly_stats_count)
+	err := db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourly_stats_count)
 	if err != nil {
 		t.Fatalf("Failed to count records: %v", err)
 	}
@@ -987,6 +663,7 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	if visitor_hashes_count != 0 {
 		t.Errorf("Expected 0 visitor_hashes record remaining, got %d", visitor_hashes_count)
 	}
+	t.Log("All periodicCleanUp tests passed")
 }
 
 func newTestDB(dbPath string) (*sql.DB, error) {
@@ -995,10 +672,11 @@ func newTestDB(dbPath string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not create test db directory: %w", err)
 	}
-	return openDB(dbPath)
+	return database.Open(dbPath)
 }
 
 func setupTestDB(t *testing.T) (*sql.DB, string) {
+	t.Helper()
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
@@ -1006,6 +684,21 @@ func setupTestDB(t *testing.T) (*sql.DB, string) {
 	if err != nil {
 		t.Fatalf("Unable to create test database: %v", err)
 	}
+
+	if err := database.RunMigrations(db, "./database/migrations"); err != nil {
+		t.Fatalf("failed to run migrations: %v", err)
+	}
+
+	version, dirty, err := database.GetCurrentVersion(db, "./database/migrations")
+	if err != nil {
+		fmt.Printf("Warning: Could not get schema version: %v\n", err)
+	} else {
+		fmt.Printf("Database schema version: %d (dirty: %v)\n", version, dirty)
+		if dirty {
+			t.Fatal("Database is in a dirty state. Manual intervention required.")
+		}
+	}
+
 	return db, tempDir
 }
 
@@ -1020,6 +713,8 @@ func runPeriodicCleanupsWithWaitGroup(db *sql.DB, ticker *time.Ticker, shutdown 
 }
 
 func createTestLogFile(t *testing.T, logPath string, logLines []string) {
+	t.Helper()
+
 	dir := filepath.Dir(logPath)
 	err := os.MkdirAll(dir, 0755)
 	if err != nil {
@@ -1038,4 +733,118 @@ func createTestLogFile(t *testing.T, logPath string, logLines []string) {
 			t.Fatalf("Failed to write log line: %v", err)
 		}
 	}
+}
+
+func getVisitorHash(t *testing.T, db *sql.DB) []VisitorHash {
+	t.Helper()
+
+	visitorHashesQuery := `SELECT * FROM visitor_hashes`
+	visitorRows, err := db.Query(visitorHashesQuery)
+	if err != nil {
+		t.Fatalf("could not query the database for vistor hashes: %v", err)
+	}
+	defer visitorRows.Close()
+	var visitorHashes []VisitorHash
+	for visitorRows.Next() {
+		var visitorHash VisitorHash
+		err := visitorRows.Scan(
+			&visitorHash.Hash,
+			&visitorHash.HourBucket,
+			&visitorHash.FirstSeen,
+		)
+		if err != nil {
+			t.Fatalf("unable to parse database visitor hash output, %v", err)
+		}
+		visitorHashes = append(visitorHashes, visitorHash)
+	}
+	return visitorHashes
+}
+
+func getHourlyStats(t *testing.T, db *sql.DB) []HourlyStats {
+	t.Helper()
+
+	hourlyStatsQuery := `SELECT * FROM hourly_stats`
+	hourlyStatsRows, err := db.Query(hourlyStatsQuery)
+	if err != nil {
+		t.Fatalf("could not query the database for hourly stats: %v", err)
+	}
+	defer hourlyStatsRows.Close()
+	var hourlyStats []HourlyStats
+	for hourlyStatsRows.Next() {
+		var hourlyStat HourlyStats
+		err := hourlyStatsRows.Scan(
+			&hourlyStat.Hour,
+			&hourlyStat.YearDay,
+			&hourlyStat.Year,
+			&hourlyStat.Path,
+			&hourlyStat.Host,
+			&hourlyStat.Pageviews,
+			&hourlyStat.IsStatic,
+			&hourlyStat.UniqueVisitors,
+			&hourlyStat.BotViews,
+		)
+		if err != nil {
+			t.Fatalf("unable to parse database hourly stat output, %v", err)
+		}
+		hourlyStats = append(hourlyStats, hourlyStat)
+	}
+	return hourlyStats
+}
+
+func getHourlyStatusCodes(t *testing.T, db *sql.DB) []HourlyStatusCodes {
+	t.Helper()
+
+	hourlyStatusCodesQuery := `SELECT * FROM hourly_status_codes`
+	hourlyStatusCodesRows, err := db.Query(hourlyStatusCodesQuery)
+	if err != nil {
+		t.Fatalf("could not query the database for hourly status codes: %v", err)
+	}
+	defer hourlyStatusCodesRows.Close()
+	var hourlyStatusCodes []HourlyStatusCodes
+	for hourlyStatusCodesRows.Next() {
+		var hourlyStatusCode HourlyStatusCodes
+		err := hourlyStatusCodesRows.Scan(
+			&hourlyStatusCode.Hour,
+			&hourlyStatusCode.YearDay,
+			&hourlyStatusCode.Year,
+			&hourlyStatusCode.Path,
+			&hourlyStatusCode.Host,
+			&hourlyStatusCode.StatusCode,
+			&hourlyStatusCode.Count,
+		)
+		if err != nil {
+			t.Fatalf("unable to parse database hourly status code output, %v", err)
+		}
+		hourlyStatusCodes = append(hourlyStatusCodes, hourlyStatusCode)
+	}
+	return hourlyStatusCodes
+}
+
+func getHourlyReferrers(t *testing.T, db *sql.DB) []HourlyReferrers {
+	t.Helper()
+
+	hourlyReferrersQuery := `SELECT * FROM hourly_referrers`
+	hourlyReferrersRows, err := db.Query(hourlyReferrersQuery)
+	if err != nil {
+		t.Fatalf("could not query the database for hourly referrers: %v", err)
+	}
+	defer hourlyReferrersRows.Close()
+	var hourlyReferrers []HourlyReferrers
+	for hourlyReferrersRows.Next() {
+		var hourlyReferrer HourlyReferrers
+		err := hourlyReferrersRows.Scan(
+			&hourlyReferrer.Hour,
+			&hourlyReferrer.YearDay,
+			&hourlyReferrer.Year,
+			&hourlyReferrer.Path,
+			&hourlyReferrer.Host,
+			&hourlyReferrer.Referrer,
+			&hourlyReferrer.Count,
+		)
+		if err != nil {
+			t.Fatalf("unable to parse database hourly referrers output, %v", err)
+		}
+		hourlyReferrers = append(hourlyReferrers, hourlyReferrer)
+	}
+	return hourlyReferrers
 }
