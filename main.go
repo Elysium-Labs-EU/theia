@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"database/sql"
+	"embed"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -19,6 +20,9 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+//go:embed database/migrations/*.sql
+var migrationsFS embed.FS
 
 type PageView struct {
 	Timestamp  time.Time
@@ -84,11 +88,11 @@ func run(dbPath string, logPath string) error {
 	}
 	defer database.Close(db)
 
-	if err := database.RunMigrations(db, "./database/migrations"); err != nil {
+	if err := database.RunMigrations(db, migrationsFS, "database/migrations"); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	version, dirty, err := database.GetCurrentVersion(db, "./database/migrations")
+	version, dirty, err := database.GetCurrentVersion(db, migrationsFS, "database/migrations")
 	if err != nil {
 		log.Printf("Warning: Could not get schema version: %v", err)
 	} else {

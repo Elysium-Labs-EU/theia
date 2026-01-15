@@ -685,11 +685,11 @@ func setupTestDB(t *testing.T) (*sql.DB, string) {
 		t.Fatalf("Unable to create test database: %v", err)
 	}
 
-	if err := database.RunMigrations(db, "./database/migrations"); err != nil {
+	if err := database.RunMigrations(db, migrationsFS, "database/migrations"); err != nil {
 		t.Fatalf("failed to run migrations: %v", err)
 	}
 
-	version, dirty, err := database.GetCurrentVersion(db, "./database/migrations")
+	version, dirty, err := database.GetCurrentVersion(db, migrationsFS, "database/migrations")
 	if err != nil {
 		fmt.Printf("Warning: Could not get schema version: %v\n", err)
 	} else {

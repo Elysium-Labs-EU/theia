@@ -10,13 +10,13 @@ Server-side analytics tool that tracks page views by parsing nginx access logs. 
 
 Using curl
 ```bash
-curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh
+curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh -o install.sh
 sudo bash install.sh
 ```
 
 Using wget
 ```bash
-wget -qO- https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh
+wget https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh
 sudo bash install.sh
 ```
 

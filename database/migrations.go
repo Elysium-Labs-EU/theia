@@ -2,20 +2,27 @@ package database
 
 import (
 	"database/sql"
+	"embed"
 	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
-func RunMigrations(db *sql.DB, migrationsPath string) error {
+func RunMigrations(db *sql.DB, migrationsFS embed.FS, migrationsPath string) error {
 	driver, err := sqlite.WithInstance(db, &sqlite.Config{})
 	if err != nil {
 		return fmt.Errorf("could not create migration driver: %w", err)
 	}
 
-	m, err := migrate.NewWithDatabaseInstance("file://"+migrationsPath, "sqlite", driver)
+	sourceDriver, err := iofs.New(migrationsFS, migrationsPath)
+	if err != nil {
+		return fmt.Errorf("could not create iofs source: %w", err)
+	}
+
+	m, err := migrate.NewWithInstance("iofs", sourceDriver, "sqlite", driver)
 	if err != nil {
 		return fmt.Errorf("could not create migrate instance: %w", err)
 	}
@@ -27,13 +34,18 @@ func RunMigrations(db *sql.DB, migrationsPath string) error {
 	return nil
 }
 
-func GetCurrentVersion(db *sql.DB, migrationsPath string) (uint, bool, error) {
+func GetCurrentVersion(db *sql.DB, migrationsFS embed.FS, migrationsPath string) (uint, bool, error) {
 	driver, err := sqlite.WithInstance(db, &sqlite.Config{})
 	if err != nil {
 		return 0, false, fmt.Errorf("could not create migration driver: %w", err)
 	}
 
-	m, err := migrate.NewWithDatabaseInstance("file://"+migrationsPath, "sqlite", driver)
+	sourceDriver, err := iofs.New(migrationsFS, migrationsPath)
+	if err != nil {
+		return 0, false, fmt.Errorf("could not create iofs source: %w", err)
+	}
+
+	m, err := migrate.NewWithInstance("iofs", sourceDriver, "sqlite", driver)
 	if err != nil {
 		return 0, false, fmt.Errorf("could not create migrate instance: %w", err)
 	}

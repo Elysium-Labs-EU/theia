@@ -1,35 +1,38 @@
-package database
+package database_test
 
 import (
 	"database/sql"
+	"embed"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"theia/database"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite"
 )
 
+//go:embed migrations/*.sql
+var testMigrationsFS embed.FS
+
 func TestMigrations(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	migrationsDir := setupTestMigrations(t, tempDir)
-
-	db, err := Open(dbPath)
+	db, err := database.Open(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
-	defer Close(db)
+	defer database.Close(db)
 
 	t.Log("Running up migrations...")
-	if err := RunMigrations(db, migrationsDir); err != nil {
+	if err := database.RunMigrations(db, testMigrationsFS, "migrations"); err != nil {
 		t.Fatalf("Failed to run up migrations: %v", err)
 	}
 
-	expectedVersion := getExpectedVersion(t, migrationsDir)
-	version, dirty, err := GetCurrentVersion(db, migrationsDir)
+	expectedVersion := getExpectedVersion(t, "migrations")
+	version, dirty, err := database.GetCurrentVersion(db, testMigrationsFS, "migrations")
 	if err != nil {
 		t.Fatalf("Failed to get current version: %v", err)
 	}
@@ -50,7 +53,7 @@ func TestMigrations(t *testing.T) {
 	t.Log("Data insertion successful")
 
 	t.Log("Running down migration...")
-	if err := runDownMigration(db, migrationsDir); err != nil {
+	if err := runDownMigration(db, "migrations"); err != nil {
 		t.Fatalf("Failed to run down migration: %v", err)
 	}
 	t.Log("Down migration successful")
@@ -60,13 +63,13 @@ func TestMigrations(t *testing.T) {
 	t.Log("All tables successfully removed")
 
 	t.Log("Running up migration again to test reversibility...")
-	if err := RunMigrations(db, migrationsDir); err != nil {
+	if err := database.RunMigrations(db, testMigrationsFS, "migrations"); err != nil {
 		t.Fatalf("Failed to run up migrations second time: %v", err)
 	}
 	t.Log("Second up migration successful - migrations are fully reversible")
 
-	expectedVersion = getExpectedVersion(t, migrationsDir)
-	version, dirty, err = GetCurrentVersion(db, migrationsDir)
+	expectedVersion = getExpectedVersion(t, "migrations")
+	version, dirty, err = database.GetCurrentVersion(db, testMigrationsFS, "migrations")
 	if err != nil {
 		t.Fatalf("Failed to get final version: %v", err)
 	}
@@ -77,40 +80,6 @@ func TestMigrations(t *testing.T) {
 		t.Fatalf("Expected version %d after second up migration, got version %d", expectedVersion, version)
 	}
 	t.Log("All migration tests passed!")
-}
-
-func setupTestMigrations(t *testing.T, tempDir string) string {
-	t.Helper()
-
-	migrationsDir := filepath.Join(tempDir, "migrations")
-	if err := os.Mkdir(migrationsDir, 0755); err != nil {
-		t.Fatalf("Failed to create migrations directory: %v", err)
-	}
-
-	sourceMigrations := "./migrations"
-
-	files, err := os.ReadDir(sourceMigrations)
-	if err != nil {
-		t.Fatalf("Failed to read migrations directory: %v", err)
-	}
-
-	for _, file := range files {
-		if filepath.Ext(file.Name()) == ".sql" {
-			sourceFile := filepath.Join(sourceMigrations, file.Name())
-			destFile := filepath.Join(migrationsDir, file.Name())
-
-			content, err := os.ReadFile(sourceFile)
-			if err != nil {
-				t.Fatalf("Failed to read migration file %s: %v", file.Name(), err)
-			}
-
-			if err := os.WriteFile(destFile, content, 0644); err != nil {
-				t.Fatalf("Failed to write migration file %s: %v", file.Name(), err)
-			}
-		}
-	}
-
-	return migrationsDir
 }
 
 func getExpectedVersion(t *testing.T, migrationsDir string) uint {
