@@ -381,3 +381,7 @@ sudo systemctl restart theia
 - Only tracks page views (no client-side events)
 - Data loss possible during crashes or restarts
 - No built-in dashboard (query SQLite directly)
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
