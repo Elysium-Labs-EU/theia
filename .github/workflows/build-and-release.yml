@@ -3,13 +3,13 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v1.0.0)'
+        description: "Version tag (e.g., v1.0.0)"
         required: false
-        default: 'v1.0.0'
+        default: "v1.0.0"
 
 permissions:
   contents: write
@@ -28,22 +28,22 @@ jobs:
             goarch: arm64
             artifact: theia-linux-arm64
     runs-on: ${{ matrix.os }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-      
+
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
-      
+          go-version: "1.25"
+
       - name: Install dependencies
         run: go mod download
-      
+
       - name: Verify dependencies
         run: go mod verify
-      
+
       - name: Build binary
         run: |
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
@@ -51,12 +51,12 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-      
+
       - name: Verify binary
         run: |
           ls -lh ${{ matrix.artifact }}
           file ${{ matrix.artifact }}
-      
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -69,37 +69,37 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    
+
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-      
+
       - name: Download all artifacts
         uses: actions/download-artifact@v7
         with:
           path: artifacts
-      
+
       - name: Display downloaded files
         run: |
           echo "=== Artifact structure ==="
           ls -R artifacts/
           find artifacts -type f
-      
+
       - name: Prepare release files
         run: |
           mkdir -p release
           find artifacts -type f -name "theia-linux-*" -exec cp {} release/ \;
           ls -lh release/
-      
+
       - name: Generate checksums
         run: |
           cd release
           sha256sum theia-linux-* > sha256sums.txt
           cat sha256sums.txt
-      
+
       - name: Get version
         id: version
         run: |
@@ -108,7 +108,7 @@ jobs:
           else
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -122,29 +122,37 @@ jobs:
           generate_release_notes: true
           body: |
             ## Theia ${{ steps.version.outputs.version }}
-            
+
             Privacy-friendly page view tracker - Server-side analytics without client-side JavaScript.
-            
+
             ### Quick Installation
-            
+
+            Using curl
             ```bash
-            curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh | sudo bash
+            curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh -o install.sh
+            sudo bash install.sh
             ```
-            
+
+            Using wget
+            ```bash
+            wget https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh
+            sudo bash install.sh
+            ```
+
             ### Manual Installation
-            
+
             Download the appropriate binary for your architecture:
             - **Linux AMD64**: `theia-linux-amd64`
             - **Linux ARM64**: `theia-linux-arm64`
-            
+
             Then:
             ```bash
             chmod +x theia-linux-amd64  # or theia-linux-arm64
             sudo cp theia-linux-amd64 /usr/local/bin/theia
             ```
-            
+
             ### Verify Download
-            
+
             Check the `sha256sums.txt` file and verify:
             ```bash
             sha256sum -c sha256sums.txt

@@ -6,7 +6,7 @@ Server-side analytics tool that tracks page views by parsing nginx access logs. 
 
 ## Installation
 
-### Quick Install (Recommended)
+### Quick Installation
 
 Using curl
 ```bash
