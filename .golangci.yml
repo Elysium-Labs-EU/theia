@@ -1,0 +1,108 @@
+version: "2"
+run:
+  tests: true
+linters:
+  default: none
+  enable:
+    # Tier 1: Bug prevention
+    - bodyclose
+    - contextcheck
+    - errcheck
+    - errorlint
+    - exhaustive
+    - forcetypeassert
+    - govet
+    - makezero
+    - nilerr
+    - nilnil
+    - noctx
+    - reassign
+    - rowserrcheck
+    - sqlclosecheck
+    - wastedassign
+    # Tier 2: Valuable quality
+    - gocritic
+    - ineffassign
+    - misspell
+    - nestif
+    - nolintlint
+    - unparam
+    - unused
+    # Tier 3: Kept but tuned
+    - gosec
+    - revive
+    - staticcheck
+  settings:
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    gocritic:
+      enabled-checks:
+        - nilValReturn
+        - deferInLoop
+        - hugeParam
+        - rangeValCopy
+        - sloppyReassign
+        - weakCond
+    gosec:
+      confidence: medium
+    govet:
+      enable-all: true
+    misspell:
+      locale: US
+    nestif:
+      min-complexity: 8
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: unexported-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+    staticcheck:
+      checks:
+        - all
+        - "-ST1000"
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - gosec
+          - noctx
+        path: _test\.go
+      - linters:
+          - revive
+        path: internal/buildinfo/
+        text: "var-naming: avoid package names"
+      - linters:
+          - revive
+        path: internal/types/
+        text: "var-naming: avoid meaningless"
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gci
+    - gofmt
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(theia)
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

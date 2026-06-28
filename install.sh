@@ -289,7 +289,7 @@ configure_nginx_multidomain
 echo "Installing systemd service..."
 cat > /etc/systemd/system/theia.service << 'EOF'
 [Unit]
-Description=theia Analytics - Privacy-Friendly Page View Tracker
+Description=theia - Privacy-First Server-Side Analytics
 After=network.target nginx.service
 
 [Service]
