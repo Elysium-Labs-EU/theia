@@ -1,4 +1,5 @@
-.PHONY: help dev build install test lint nilcheck leak-test clean docker-* test-docker-* release release-local fix setup
+.PHONY: help list dev build install test lint nilcheck leak-test clean docker-* test-docker-* release release-local fix setup
+.DEFAULT_GOAL := help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -20,6 +21,8 @@ setup: ## Install dev tools (golangci-lint, nilaway) and git hooks
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-28s\033[0m %s\n", $$1, $$2}' | sort
+
+list: help ## List all available commands
 
 dev: ## Run theia locally
 	@echo "Running theia in development mode..."
