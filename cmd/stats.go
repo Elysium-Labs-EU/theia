@@ -14,10 +14,11 @@ import (
 	"theia/internal/query"
 )
 
+//nolint:govet // fieldalignment: JSON output field order follows struct order; reordering would change the rendered output
 type statsReport struct {
-	Summary      query.Summary      `json:"summary"`
-	TopPaths     []query.PathStat   `json:"top_paths"`
-	StatusCodes  []query.StatusStat `json:"status_codes"`
+	Summary      query.Summary        `json:"summary"`
+	TopPaths     []query.PathStat     `json:"top_paths"`
+	StatusCodes  []query.StatusStat   `json:"status_codes"`
 	TopReferrers []query.ReferrerStat `json:"top_referrers"`
 }
 
@@ -73,7 +74,7 @@ func runStats(cmd *cobra.Command, dbPath string, days int, host, format string, 
 	}
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
-	if err := database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath); err != nil {
+	if err = database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath); err != nil {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 
@@ -85,9 +86,9 @@ func runStats(cmd *cobra.Command, dbPath string, days int, host, format string, 
 
 	switch format {
 	case "json":
-		return renderJSON(cmd, report)
+		return renderJSON(cmd, &report)
 	default:
-		return renderTable(cmd, report, days, host)
+		return renderTable(cmd, &report, days, host)
 	}
 }
 
@@ -120,57 +121,56 @@ func collectStats(ctx context.Context, db *sql.DB, since time.Time, host string,
 	}, nil
 }
 
-func renderTable(cmd *cobra.Command, r statsReport, days int, host string) error {
+func renderTable(cmd *cobra.Command, r *statsReport, days int, host string) error {
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	defer w.Flush() //nolint:errcheck // flush error in defer is not actionable
 
 	period := fmt.Sprintf("last %d days", days)
 	if host != "" {
 		period += " - " + host
 	}
 
-	fmt.Fprintf(w, "Summary (%s)\n", period)
-	fmt.Fprintf(w, "  Pageviews:\t%d\n", r.Summary.Pageviews)
-	fmt.Fprintf(w, "  Unique visitors:\t%d\n", r.Summary.UniqueVisitors)
-	fmt.Fprintf(w, "  Bot views:\t%d\n", r.Summary.BotViews)
+	_, _ = fmt.Fprintf(w, "Summary (%s)\n", period)
+	_, _ = fmt.Fprintf(w, "  Pageviews:\t%d\n", r.Summary.Pageviews)
+	_, _ = fmt.Fprintf(w, "  Unique visitors:\t%d\n", r.Summary.UniqueVisitors)
+	_, _ = fmt.Fprintf(w, "  Bot views:\t%d\n", r.Summary.BotViews)
 
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Top Paths")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Top Paths")
 	if len(r.TopPaths) == 0 {
-		fmt.Fprintln(w, "  (no data)")
+		_, _ = fmt.Fprintln(w, "  (no data)")
 	} else {
-		fmt.Fprintln(w, "  PATH\tHOST\tPAGEVIEWS")
+		_, _ = fmt.Fprintln(w, "  PATH\tHOST\tPAGEVIEWS")
 		for _, p := range r.TopPaths {
-			fmt.Fprintf(w, "  %s\t%s\t%d\n", p.Path, p.Host, p.Pageviews)
+			_, _ = fmt.Fprintf(w, "  %s\t%s\t%d\n", p.Path, p.Host, p.Pageviews)
 		}
 	}
 
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Status Codes")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Status Codes")
 	if len(r.StatusCodes) == 0 {
-		fmt.Fprintln(w, "  (no data)")
+		_, _ = fmt.Fprintln(w, "  (no data)")
 	} else {
-		fmt.Fprintln(w, "  CODE\tCOUNT")
+		_, _ = fmt.Fprintln(w, "  CODE\tCOUNT")
 		for _, s := range r.StatusCodes {
-			fmt.Fprintf(w, "  %d\t%d\n", s.StatusCode, s.Count)
+			_, _ = fmt.Fprintf(w, "  %d\t%d\n", s.StatusCode, s.Count)
 		}
 	}
 
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Top Referrers")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Top Referrers")
 	if len(r.TopReferrers) == 0 {
-		fmt.Fprintln(w, "  (no data)")
+		_, _ = fmt.Fprintln(w, "  (no data)")
 	} else {
-		fmt.Fprintln(w, "  REFERRER\tCOUNT")
+		_, _ = fmt.Fprintln(w, "  REFERRER\tCOUNT")
 		for _, ref := range r.TopReferrers {
-			fmt.Fprintf(w, "  %s\t%d\n", ref.Referrer, ref.Count)
+			_, _ = fmt.Fprintf(w, "  %s\t%d\n", ref.Referrer, ref.Count)
 		}
 	}
 
-	return nil
+	return w.Flush()
 }
 
-func renderJSON(cmd *cobra.Command, r statsReport) error {
+func renderJSON(cmd *cobra.Command, r *statsReport) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(r)
