@@ -3,14 +3,16 @@ package database_test
 import (
 	"database/sql"
 	"embed"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"theia/database"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite"
+
+	"theia/database"
 )
 
 //go:embed migrations/*.sql
@@ -20,15 +22,15 @@ func TestMigrations(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	db, err := database.Open(dbPath)
+	db, err := database.Open(t.Context(), dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
-	defer database.Close(db)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
 	t.Log("Running up migrations...")
-	if err := database.RunMigrations(db, testMigrationsFS, "migrations"); err != nil {
-		t.Fatalf("Failed to run up migrations: %v", err)
+	if migrationsErr := database.RunMigrations(db, testMigrationsFS, "migrations"); migrationsErr != nil {
+		t.Fatalf("Failed to run up migrations: %v", migrationsErr)
 	}
 
 	expectedVersion := getExpectedVersion(t, "migrations")
@@ -53,8 +55,8 @@ func TestMigrations(t *testing.T) {
 	t.Log("Data insertion successful")
 
 	t.Log("Running down migration...")
-	if err := runDownMigration(db, "migrations"); err != nil {
-		t.Fatalf("Failed to run down migration: %v", err)
+	if migrationsErr := runDownMigration(db, "migrations"); migrationsErr != nil {
+		t.Fatalf("Failed to run down migration: %v", migrationsErr)
 	}
 	t.Log("Down migration successful")
 
@@ -63,8 +65,8 @@ func TestMigrations(t *testing.T) {
 	t.Log("All tables successfully removed")
 
 	t.Log("Running up migration again to test reversibility...")
-	if err := database.RunMigrations(db, testMigrationsFS, "migrations"); err != nil {
-		t.Fatalf("Failed to run up migrations second time: %v", err)
+	if migrationsErr := database.RunMigrations(db, testMigrationsFS, "migrations"); migrationsErr != nil {
+		t.Fatalf("Failed to run up migrations second time: %v", migrationsErr)
 	}
 	t.Log("Second up migration successful - migrations are fully reversible")
 
@@ -93,7 +95,7 @@ func getExpectedVersion(t *testing.T, migrationsDir string) uint {
 	var migrationCount uint
 	for _, file := range files {
 		if strings.HasSuffix(file.Name(), ".up.sql") {
-			migrationCount += 1
+			migrationCount++
 		}
 	}
 
@@ -211,7 +213,7 @@ func runDownMigration(db *sql.DB, migrationsPath string) error {
 		return err
 	}
 
-	if err := m.Down(); err != nil && err != migrate.ErrNoChange {
+	if err := m.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return err
 	}
 
