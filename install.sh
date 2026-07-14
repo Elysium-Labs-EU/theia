@@ -340,7 +340,7 @@ After=network.target nginx.service
 Type=simple
 User=root
 WorkingDirectory=${DATA_DIR}
-ExecStart=${INSTALL_DIR}/${BINARY_NAME}
+ExecStart=${INSTALL_DIR}/${BINARY_NAME} daemon
 Restart=always
 RestartSec=10
 
