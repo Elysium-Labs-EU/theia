@@ -208,6 +208,25 @@ install_sqlite3_cli() {
     fi
 }
 
+stop_running_service() {
+    if ! systemctl is-active --quiet theia.service 2>/dev/null; then
+        return 0
+    fi
+
+    echo ""
+    warn "theia.service is running"
+    dim "  Replacing binary while the service is active can fail (Text file busy)"
+    echo ""
+
+    if confirm "Stop theia service before installing?" "y"; then
+        systemctl stop theia.service
+        success "Service stopped"
+        WAS_RUNNING=true
+    else
+        warn "Continuing with service running — install may fail"
+    fi
+}
+
 configure_nginx_multidomain() {
     echo ""
     step "Nginx multi-domain configuration"
@@ -375,6 +394,7 @@ refresh_completions() {
 
 main() {
     local local_binary=""
+    WAS_RUNNING=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -503,12 +523,18 @@ main() {
         success "Downloaded successfully"
     fi
 
+    # Stop running service before overwriting binary
+    stop_running_service
+
     # Install binary
     step "Installing binary..."
     mkdir -p "$INSTALL_DIR"
     chmod +x "$tmp_binary"
-    cp "$tmp_binary" "${INSTALL_DIR}/${BINARY_NAME}"
-    success "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
+    local final_binary="${INSTALL_DIR}/${BINARY_NAME}"
+    local tmp_install="${final_binary}.tmp.$$"
+    cp "$tmp_binary" "$tmp_install"
+    mv -f "$tmp_install" "$final_binary"
+    success "Installed to ${final_binary}"
 
     # Refresh any shell completion already installed for the invoking user
     refresh_completions
@@ -527,14 +553,24 @@ main() {
     mkdir -p "$DATA_DIR"
     success "Created ${DATA_DIR}"
 
+    if [ "$WAS_RUNNING" = true ]; then
+        step "Restarting theia service..."
+        systemctl start theia.service
+        success "Service restarted"
+    fi
+
     echo ""
     echo -e "${GREEN}${BOLD}Installation complete!${NC}"
     echo ""
     echo -e "${BOLD}Next steps:${NC}"
-    echo "  1. Start the service:"
-    echo -e "     ${CYAN}sudo systemctl start theia${NC}"
-    echo ""
-    echo "  2. Check status:"
+    if [ "$WAS_RUNNING" = true ]; then
+        echo "  1. Check status:"
+    else
+        echo "  1. Start the service:"
+        echo -e "     ${CYAN}sudo systemctl start theia${NC}"
+        echo ""
+        echo "  2. Check status:"
+    fi
     echo -e "     ${CYAN}sudo systemctl status theia${NC}"
     echo ""
     echo "  3. View logs:"
