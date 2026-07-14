@@ -118,6 +118,18 @@ Top Referrers
   https://example.com   420
 ```
 
+### Shell tab completion
+
+```bash
+# Detect your shell and prompt to install
+theia completion
+
+# Or print the script for a specific shell to stdout
+theia completion bash > /etc/bash_completion.d/theia
+theia completion zsh > "${fpath[1]}/_theia"
+theia completion fish > ~/.config/fish/completions/theia.fish
+```
+
 ## Service Management
 
 Theia runs as a systemd service:
