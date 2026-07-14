@@ -22,7 +22,7 @@ No client-side JavaScript required, making it resistant to ad-blockers.`, buildi
 
 	rootCmd.AddCommand(newDaemonCmd())
 	rootCmd.AddCommand(newStatsCmd())
-	rootCmd.AddCommand(newVersionCmd())
+	rootCmd.AddCommand(newSystemCmd())
 	rootCmd.AddCommand(newCompletionCmd(rootCmd))
 
 	return rootCmd
