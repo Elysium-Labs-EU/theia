@@ -7,7 +7,12 @@ import (
 )
 
 func Open(ctx context.Context, dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// WAL lets readers and writers work concurrently instead of blocking on
+	// SQLite's default rollback-journal exclusive lock; busy_timeout makes a
+	// writer that still loses that race retry for 5s instead of failing
+	// immediately with SQLITE_BUSY, which is what daemon's startup cleanup
+	// queries were hitting against a database opened without either pragma.
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("could not open database: %w", err)
 	}
