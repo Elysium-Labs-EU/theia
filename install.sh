@@ -565,15 +565,18 @@ main() {
     echo -e "${BOLD}Next steps:${NC}"
     if [ "$WAS_RUNNING" = true ]; then
         echo "  1. Check status:"
+        echo -e "     ${CYAN}sudo systemctl status theia${NC}"
+        echo ""
+        echo "  2. View logs:"
     else
         echo "  1. Start the service:"
         echo -e "     ${CYAN}sudo systemctl start theia${NC}"
         echo ""
         echo "  2. Check status:"
+        echo -e "     ${CYAN}sudo systemctl status theia${NC}"
+        echo ""
+        echo "  3. View logs:"
     fi
-    echo -e "     ${CYAN}sudo systemctl status theia${NC}"
-    echo ""
-    echo "  3. View logs:"
     echo -e "     ${CYAN}sudo journalctl -u theia -f${NC}"
     echo ""
     echo -e "${BOLD}Enable tab completion:${NC}"
