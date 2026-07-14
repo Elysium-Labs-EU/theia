@@ -14,13 +14,10 @@ func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "theia",
 		Short: "Privacy-first server-side analytics",
-		Long: `theia tracks page views by parsing nginx access logs.
-No client-side JavaScript required, making it resistant to ad-blockers.`,
+		Long: fmt.Sprintf(`theia %s
 
-		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Printf("theia %s\n\n", buildinfo.GetVersionOnly())
-			cmd.Printf("note: %s -> see available commands\n\n", "theia help")
-		},
+theia tracks page views by parsing nginx access logs.
+No client-side JavaScript required, making it resistant to ad-blockers.`, buildinfo.GetVersionOnly()),
 	}
 
 	rootCmd.AddCommand(newDaemonCmd())
