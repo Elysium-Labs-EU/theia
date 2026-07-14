@@ -342,6 +342,37 @@ EOF
     success "Service installed and enabled"
 }
 
+refresh_completions() {
+    local theia_bin="${INSTALL_DIR}/${BINARY_NAME}"
+    local target_user="${SUDO_USER:-$(whoami)}"
+    local target_home
+    target_home=$(getent passwd "$target_user" 2>/dev/null | cut -d: -f6)
+
+    if [ -z "$target_home" ]; then
+        return 0
+    fi
+
+    # Keep in sync with completionTargetPath() in cmd/completion.go
+    local bash_completion="${target_home}/.local/share/bash-completion/completions/${BINARY_NAME}"
+    local zsh_completion="${target_home}/.zsh/completions/_${BINARY_NAME}"
+    local fish_completion="${target_home}/.config/fish/completions/${BINARY_NAME}.fish"
+
+    local refreshed=false
+    if [ -f "$bash_completion" ] && "$theia_bin" completion bash > "$bash_completion" 2>/dev/null; then
+        refreshed=true
+    fi
+    if [ -f "$zsh_completion" ] && "$theia_bin" completion zsh > "$zsh_completion" 2>/dev/null; then
+        refreshed=true
+    fi
+    if [ -f "$fish_completion" ] && "$theia_bin" completion fish > "$fish_completion" 2>/dev/null; then
+        refreshed=true
+    fi
+
+    if [ "$refreshed" = true ]; then
+        success "Refreshed shell completion for ${target_user}"
+    fi
+}
+
 main() {
     local local_binary=""
 
@@ -479,6 +510,9 @@ main() {
     cp "$tmp_binary" "${INSTALL_DIR}/${BINARY_NAME}"
     success "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
 
+    # Refresh any shell completion already installed for the invoking user
+    refresh_completions
+
     # Optional sqlite3 CLI
     install_sqlite3_cli "$pkg_manager"
 
@@ -505,6 +539,11 @@ main() {
     echo ""
     echo "  3. View logs:"
     echo -e "     ${CYAN}sudo journalctl -u theia -f${NC}"
+    echo ""
+    echo -e "${BOLD}Enable tab completion:${NC}"
+    echo -e "  bash:  ${CYAN}theia completion bash > /etc/bash_completion.d/theia${NC}"
+    echo -e "  zsh:   ${CYAN}theia completion zsh > \"\${fpath[1]}/_theia\"${NC}"
+    echo -e "  fish:  ${CYAN}theia completion fish > ~/.config/fish/completions/theia.fish${NC}"
     echo ""
     dim "Database: ${DATA_DIR}/theia.db"
     echo ""
