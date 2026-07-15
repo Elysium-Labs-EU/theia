@@ -17,7 +17,9 @@ func newRootCmd() *cobra.Command {
 
 theia tracks page views by parsing nginx access logs.
 No client-side JavaScript required, making it resistant to ad-blockers.`, buildinfo.GetVersionOnly()),
+		Version: buildinfo.Get(),
 	}
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
 	rootCmd.AddCommand(newDaemonCmd())
 	rootCmd.AddCommand(newStatsCmd())
