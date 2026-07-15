@@ -12,7 +12,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite"
 
-	"theia/database"
+	"codeberg.org/Elysium_Labs/theia/database"
 )
 
 //go:embed migrations/*.sql

@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"theia/internal/ingest"
+	"codeberg.org/Elysium_Labs/theia/internal/ingest"
 )
 
 func newDaemonCmd() *cobra.Command {

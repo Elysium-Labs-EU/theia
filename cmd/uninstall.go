@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"theia/internal/ui"
+	"codeberg.org/Elysium_Labs/theia/internal/ui"
 )
 
 // theiaDataDir must stay in sync with DATA_DIR in install.sh.

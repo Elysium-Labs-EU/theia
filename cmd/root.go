@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"theia/internal/buildinfo"
+	"codeberg.org/Elysium_Labs/theia/internal/buildinfo"
 )
 
 func newRootCmd() *cobra.Command {

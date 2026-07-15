@@ -2,7 +2,7 @@
 // page views by parsing nginx access logs.
 package main
 
-import "theia/cmd"
+import "codeberg.org/Elysium_Labs/theia/cmd"
 
 func main() {
 	cmd.Execute()

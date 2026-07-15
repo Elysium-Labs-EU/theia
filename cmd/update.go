@@ -19,8 +19,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 
-	"theia/internal/buildinfo"
-	"theia/internal/ui"
+	"codeberg.org/Elysium_Labs/theia/internal/buildinfo"
+	"codeberg.org/Elysium_Labs/theia/internal/ui"
 )
 
 const theiaRepo = "Elysium_Labs/theia"

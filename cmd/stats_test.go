@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"theia/database"
+	"codeberg.org/Elysium_Labs/theia/database"
 )
 
 func setupCmdTestDB(t *testing.T) (*sql.DB, string) {

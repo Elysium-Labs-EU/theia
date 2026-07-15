@@ -1,4 +1,4 @@
-module theia
+module codeberg.org/Elysium_Labs/theia
 
 go 1.26.1
 
