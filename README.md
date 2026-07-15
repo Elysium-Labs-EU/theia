@@ -159,14 +159,20 @@ sudo systemctl restart theia
 4. Detects bots and static assets automatically
 5. Writes to SQLite database asynchronously
 6. Automatically cleans up old records every 12 hours:
-   - Hourly stats, status codes, and referrers: older than 60 days
-   - Visitor hashes: older than 1 day
+   - Hourly stats, status codes, referrers, and visitor days: older than 60 days
 
 ## Requirements
 
 - Linux with systemd
 - Go 1.25+ (for building from source)
 - Root/sudo access (for nginx log access)
+
+## Security
+
+See [docs/nginx-hardening.md](docs/nginx-hardening.md) for guidance on rate-limiting or banning
+scanners that repeatedly probe for `wp-*.php`, `.git/config`, `sftp-config.json`, and similar
+paths — these show up as 404 noise in nginx logs (and therefore in theia's stats) and are worth
+blocking at the nginx/fail2ban level.
 
 ## Limitations
 

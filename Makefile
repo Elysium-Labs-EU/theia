@@ -42,7 +42,7 @@ install: build ## Install to ~/.local/bin
 
 test: ## Run tests
 	@echo "Running tests..."
-	go test ./cmd ./internal/... -race -count=2
+	go test ./cmd ./internal/... ./database/... -race -count=2
 
 test-coverage: ## Get test coverage
 	@echo "Getting test coverage..."

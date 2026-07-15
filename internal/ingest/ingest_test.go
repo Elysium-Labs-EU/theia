@@ -40,21 +40,17 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 
 	wg.Wait()
 
-	t.Log("Starting visitorHash tests")
-	visitorHashes := getVisitorHash(t, db)
-	if len(visitorHashes) != 3 {
-		t.Errorf("Expected 3 entries in visitor hash table, got %d instead", len(visitorHashes))
+	t.Log("Starting visitorDay tests")
+	visitorDays := getVisitorDays(t, db)
+	if len(visitorDays) != 3 {
+		t.Errorf("Expected 3 entries in visitor day table, got %d instead", len(visitorDays))
 	}
-	t.Log("All visitorHash tests passed")
+	t.Log("All visitorDay tests passed")
 
 	t.Log("Starting hourlyStats tests")
 	hourlyStats := getHourlyStats(t, db)
 	if len(hourlyStats) != 3 {
 		t.Fatalf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
-	}
-
-	if hourlyStats[2].UniqueVisitors != 3 {
-		t.Errorf("Expected 3 unique visitors in hourly stats table, got %d instead", hourlyStats[2].UniqueVisitors)
 	}
 
 	if hourlyStats[0].Pageviews != 1 {
@@ -156,14 +152,14 @@ func TestRunSameDay20DaysAgo(t *testing.T) {
 		t.Errorf("Expected 3 hourly_referrers record remaining, got %d", hourlyReferrersCount)
 	}
 
-	var visitorHashesCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM visitor_hashes").Scan(&visitorHashesCount)
+	var visitorDaysCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM visitor_days").Scan(&visitorDaysCount)
 	if err != nil {
 		t.Fatalf("Failed to count records: %v", err)
 	}
 
-	if visitorHashesCount != 0 {
-		t.Errorf("Expected 0 visitor_hashes record remaining, got %d", visitorHashesCount)
+	if visitorDaysCount != 3 {
+		t.Errorf("Expected 3 visitor_days record remaining, got %d", visitorDaysCount)
 	}
 	t.Log("All periodicCleanUp tests passed")
 }
@@ -194,32 +190,28 @@ func TestRunSameDayInThePast(t *testing.T) {
 
 	wg.Wait()
 
-	t.Log("Starting visitorHash tests")
-	visitorHashes := getVisitorHash(t, db)
-	if len(visitorHashes) != 3 {
-		t.Errorf("Expected 3 entries in visitor hash table, got %d instead", len(visitorHashes))
+	t.Log("Starting visitorDay tests")
+	visitorDays := getVisitorDays(t, db)
+	if len(visitorDays) != 3 {
+		t.Errorf("Expected 3 entries in visitor day table, got %d instead", len(visitorDays))
 	}
-	t.Log("All visitorHash tests passed")
+	t.Log("All visitorDay tests passed")
 
-	allInHourBucket10 := true
-	for _, visitorHash := range visitorHashes {
-		if visitorHash.HourBucket != 10 {
-			allInHourBucket10 = false
+	allOnSameDay := true
+	for _, visitorDay := range visitorDays {
+		if visitorDay.Year != 2024 || visitorDay.YearDay != 359 {
+			allOnSameDay = false
 			break
 		}
 	}
-	if !allInHourBucket10 {
-		t.Errorf("Expected all the entries to be in the 10 hour bucket")
+	if !allOnSameDay {
+		t.Errorf("Expected all the entries to be recorded on year_day 359 of 2024")
 	}
 
 	t.Log("Starting hourlyStats tests")
 	hourlyStats := getHourlyStats(t, db)
 	if len(hourlyStats) != 3 {
 		t.Fatalf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
-	}
-
-	if hourlyStats[2].UniqueVisitors != 3 {
-		t.Errorf("Expected 3 unique visitors in hourly stats table, got %d instead", hourlyStats[2].UniqueVisitors)
 	}
 
 	if hourlyStats[0].Pageviews != 1 {
@@ -330,14 +322,14 @@ func TestRunSameDayInThePast(t *testing.T) {
 		t.Errorf("Expected 0 hourly_referrers record remaining, got %d", hourlyReferrersCount)
 	}
 
-	var visitorHashesCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM visitor_hashes").Scan(&visitorHashesCount)
+	var visitorDaysCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM visitor_days").Scan(&visitorDaysCount)
 	if err != nil {
 		t.Fatalf("Failed to count records: %v", err)
 	}
 
-	if visitorHashesCount != 0 {
-		t.Errorf("Expected 0 visitor_hashes record remaining, got %d", visitorHashesCount)
+	if visitorDaysCount != 0 {
+		t.Errorf("Expected 0 visitor_days record remaining, got %d", visitorDaysCount)
 	}
 	t.Log("All periodicCleanUp tests passed")
 }
@@ -368,21 +360,17 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 
 	wg.Wait()
 
-	t.Log("Starting visitorHash tests")
-	visitorHashes := getVisitorHash(t, db)
-	if len(visitorHashes) != 3 {
-		t.Fatalf("Expected 3 entries in visitor hash table, got %d instead", len(visitorHashes))
+	t.Log("Starting visitorDay tests")
+	visitorDays := getVisitorDays(t, db)
+	if len(visitorDays) != 3 {
+		t.Fatalf("Expected 3 entries in visitor day table, got %d instead", len(visitorDays))
 	}
-	t.Log("All visitorHash tests passed")
+	t.Log("All visitorDay tests passed")
 
 	t.Log("Starting hourlyStats tests")
 	hourlyStats := getHourlyStats(t, db)
 	if len(hourlyStats) != 3 {
 		t.Fatalf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
-	}
-
-	if hourlyStats[2].UniqueVisitors != 3 {
-		t.Errorf("Expected 3 unique visitors in hourly stats table, got %d instead", hourlyStats[2].UniqueVisitors)
 	}
 
 	if hourlyStats[0].Pageviews != 1 {
@@ -493,14 +481,14 @@ func TestRunDifferentDaysInNearPast(t *testing.T) {
 		t.Errorf("Expected 3 hourly_referrers record remaining, got %d", hourlyReferrersCount)
 	}
 
-	var visitorHashesCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM visitor_hashes").Scan(&visitorHashesCount)
+	var visitorDaysCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM visitor_days").Scan(&visitorDaysCount)
 	if err != nil {
 		t.Fatalf("Failed to count records: %v", err)
 	}
 
-	if visitorHashesCount != 2 {
-		t.Errorf("Expected 2 visitor_hashes record remaining, got %d", visitorHashesCount)
+	if visitorDaysCount != 3 {
+		t.Errorf("Expected 3 visitor_days record remaining, got %d", visitorDaysCount)
 	}
 	t.Log("All periodicCleanUp tests passed")
 }
@@ -531,21 +519,17 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 
 	wg.Wait()
 
-	t.Log("Starting visitorHash tests")
-	visitorHashes := getVisitorHash(t, db)
-	if len(visitorHashes) != 3 {
-		t.Fatalf("Expected 3 entries in visitor hash table, got %d instead", len(visitorHashes))
+	t.Log("Starting visitorDay tests")
+	visitorDays := getVisitorDays(t, db)
+	if len(visitorDays) != 3 {
+		t.Fatalf("Expected 3 entries in visitor day table, got %d instead", len(visitorDays))
 	}
-	t.Log("All visitorHash tests passed")
+	t.Log("All visitorDay tests passed")
 
 	t.Log("Starting hourlyStats tests")
 	hourlyStats := getHourlyStats(t, db)
 	if len(hourlyStats) != 3 {
 		t.Fatalf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
-	}
-
-	if hourlyStats[2].UniqueVisitors != 3 {
-		t.Errorf("Expected 3 unique visitors in hourly stats table, got %d instead", hourlyStats[2].UniqueVisitors)
 	}
 
 	if hourlyStats[0].Pageviews != 1 {
@@ -656,14 +640,14 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 		t.Errorf("Expected 2 hourly_referrers record remaining, got %d", hourlyReferrersCount)
 	}
 
-	var visitorHashesCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM visitor_hashes").Scan(&visitorHashesCount)
+	var visitorDaysCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM visitor_days").Scan(&visitorDaysCount)
 	if err != nil {
 		t.Fatalf("Failed to count records: %v", err)
 	}
 
-	if visitorHashesCount != 0 {
-		t.Errorf("Expected 0 visitor_hashes record remaining, got %d", visitorHashesCount)
+	if visitorDaysCount != 2 {
+		t.Errorf("Expected 2 visitor_days record remaining, got %d", visitorDaysCount)
 	}
 	t.Log("All periodicCleanUp tests passed")
 }
@@ -734,32 +718,34 @@ func createTestLogFile(t *testing.T, logPath string, logLines []string) {
 	}
 }
 
-func getVisitorHash(t *testing.T, db *sql.DB) []VisitorHash {
+func getVisitorDays(t *testing.T, db *sql.DB) []VisitorDay {
 	t.Helper()
 
-	visitorHashesQuery := `SELECT * FROM visitor_hashes`
-	visitorRows, err := db.QueryContext(t.Context(), visitorHashesQuery)
+	visitorDaysQuery := `SELECT * FROM visitor_days`
+	visitorRows, err := db.QueryContext(t.Context(), visitorDaysQuery)
 	if err != nil {
 		t.Fatalf("could not query the database for vistor hashes: %v", err)
 	}
 	defer visitorRows.Close() //nolint:errcheck // close error in defer is not actionable
-	var visitorHashes []VisitorHash
+	var visitorDays []VisitorDay
 	for visitorRows.Next() {
-		var visitorHash VisitorHash
+		var visitorDay VisitorDay
 		err := visitorRows.Scan(
-			&visitorHash.Hash,
-			&visitorHash.HourBucket,
-			&visitorHash.FirstSeen,
+			&visitorDay.Hash,
+			&visitorDay.Host,
+			&visitorDay.Year,
+			&visitorDay.YearDay,
+			&visitorDay.FirstSeen,
 		)
 		if err != nil {
-			t.Fatalf("unable to parse database visitor hash output, %v", err)
+			t.Fatalf("unable to parse database visitor day output, %v", err)
 		}
-		visitorHashes = append(visitorHashes, visitorHash)
+		visitorDays = append(visitorDays, visitorDay)
 	}
 	if err := visitorRows.Err(); err != nil {
 		t.Fatalf("visitorRows iteration error: %v", err)
 	}
-	return visitorHashes
+	return visitorDays
 }
 
 func getHourlyStats(t *testing.T, db *sql.DB) []HourlyStats {
@@ -782,7 +768,6 @@ func getHourlyStats(t *testing.T, db *sql.DB) []HourlyStats {
 			&hourlyStat.Host,
 			&hourlyStat.Pageviews,
 			&hourlyStat.IsStatic,
-			&hourlyStat.UniqueVisitors,
 			&hourlyStat.BotViews,
 		)
 		if err != nil {

@@ -110,7 +110,7 @@ func verifyTablesExist(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	expectedTables := []string{
-		"visitor_hashes",
+		"visitor_days",
 		"hourly_stats",
 		"hourly_status_codes",
 		"hourly_referrers",
@@ -133,7 +133,7 @@ func verifyTablesRemoved(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	expectedTables := []string{
-		"visitor_hashes",
+		"visitor_days",
 		"hourly_stats",
 		"hourly_status_codes",
 		"hourly_referrers",
@@ -156,17 +156,17 @@ func testDataInsertion(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	_, err := db.Exec(`
-		INSERT INTO visitor_hashes (hash, hour_bucket, first_seen)
-		VALUES (?, ?, datetime('now'))
-	`, "test_hash_123", 14)
+		INSERT INTO visitor_days (hash, host, year, year_day, first_seen)
+		VALUES (?, ?, ?, ?, datetime('now'))
+	`, "test_hash_123", "example.com", 2024, 1)
 	if err != nil {
-		t.Fatalf("Failed to insert into visitor_hashes: %v", err)
+		t.Fatalf("Failed to insert into visitor_days: %v", err)
 	}
 
 	_, err = db.Exec(`
-		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, is_static, unique_visitors, bot_views)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, 14, 1, 2024, "/test", "example.com", 1, 0, 1, 0)
+		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, is_static, bot_views)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, 14, 1, 2024, "/test", "example.com", 1, 0, 0)
 	if err != nil {
 		t.Fatalf("Failed to insert into hourly_stats: %v", err)
 	}
@@ -188,7 +188,7 @@ func testDataInsertion(t *testing.T, db *sql.DB) {
 	}
 
 	var hash string
-	err = db.QueryRow(`SELECT hash FROM visitor_hashes WHERE hash = ?`, "test_hash_123").Scan(&hash)
+	err = db.QueryRow(`SELECT hash FROM visitor_days WHERE hash = ?`, "test_hash_123").Scan(&hash)
 	if err != nil {
 		t.Fatalf("Failed to read back inserted data: %v", err)
 	}

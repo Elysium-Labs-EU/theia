@@ -42,18 +42,38 @@ func insertHourlyStat(t *testing.T, db *sql.DB, path, host string, ts time.Time,
 		staticInt = 1
 	}
 	_, err := db.ExecContext(t.Context(), `
-		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, is_static, unique_visitors, bot_views)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, is_static, bot_views)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(hour, year_day, year, path, host) DO UPDATE SET
 			page_views = page_views + ?,
-			unique_visitors = ?,
 			bot_views = bot_views + ?`,
 		ts.Hour(), ts.YearDay(), ts.Year(), path, host,
-		pageViews, staticInt, uniqueVisitors, botViews,
-		pageViews, uniqueVisitors, botViews,
+		pageViews, staticInt, botViews,
+		pageViews, botViews,
 	)
 	if err != nil {
 		t.Fatalf("insert hourly stat: %v", err)
+	}
+
+	insertDistinctVisitorDays(t, db, path, host, ts, uniqueVisitors)
+}
+
+// insertDistinctVisitorDays seeds visitor_days with N distinct hashes for the given
+// host/day so that GetSummary's COUNT(DISTINCT hash) reflects the unique visitor
+// count a test expects, without any single hash colliding across paths/tests.
+func insertDistinctVisitorDays(t *testing.T, db *sql.DB, path, host string, ts time.Time, count int) {
+	t.Helper()
+	for i := range count {
+		hash := fmt.Sprintf("%s|%s|%d", host, path, i)
+		_, err := db.ExecContext(t.Context(), `
+			INSERT INTO visitor_days (hash, host, year, year_day, first_seen)
+			VALUES (?, ?, ?, ?, datetime('now'))
+			ON CONFLICT(hash, host, year, year_day) DO NOTHING`,
+			hash, host, ts.Year(), ts.YearDay(),
+		)
+		if err != nil {
+			t.Fatalf("insert visitor day: %v", err)
+		}
 	}
 }
 

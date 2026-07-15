@@ -15,10 +15,12 @@ type PageView struct {
 	IsStatic   bool
 }
 
-type VisitorHash struct {
-	FirstSeen  time.Time
-	Hash       string
-	HourBucket int
+type VisitorDay struct {
+	FirstSeen time.Time
+	Hash      string
+	Host      string
+	Year      int
+	YearDay   int
 }
 
 type HourlyStatusCodes struct {
@@ -42,13 +44,12 @@ type HourlyReferrers struct {
 }
 
 type HourlyStats struct {
-	Path           string
-	Host           string
-	Hour           int
-	YearDay        int
-	Year           int
-	Pageviews      int
-	UniqueVisitors int
-	BotViews       int
-	IsStatic       bool
+	Path      string
+	Host      string
+	Hour      int
+	YearDay   int
+	Year      int
+	Pageviews int
+	BotViews  int
+	IsStatic  bool
 }
