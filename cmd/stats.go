@@ -8,10 +8,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"codeberg.org/Elysium_Labs/theia/database"
+	"codeberg.org/Elysium_Labs/theia/internal/query"
 	"github.com/spf13/cobra"
-
-	"theia/database"
-	"theia/internal/query"
 )
 
 //nolint:govet // fieldalignment: JSON output field order follows struct order; reordering would change the rendered output

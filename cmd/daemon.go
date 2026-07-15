@@ -3,9 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"codeberg.org/Elysium_Labs/theia/internal/ingest"
 	"github.com/spf13/cobra"
-
-	"theia/internal/ingest"
 )
 
 func newDaemonCmd() *cobra.Command {

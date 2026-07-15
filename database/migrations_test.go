@@ -9,10 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"codeberg.org/Elysium_Labs/theia/database"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite"
-
-	"theia/database"
 )
 
 //go:embed migrations/*.sql

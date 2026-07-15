@@ -1,9 +1,8 @@
 package cmd
 
 import (
+	"codeberg.org/Elysium_Labs/theia/internal/buildinfo"
 	"github.com/spf13/cobra"
-
-	"theia/internal/buildinfo"
 )
 
 func newVersionCmd() *cobra.Command {

@@ -10,9 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"codeberg.org/Elysium_Labs/theia/database"
 	"github.com/spf13/cobra"
-
-	"theia/database"
 )
 
 func setupCmdTestDB(t *testing.T) (*sql.DB, string) {

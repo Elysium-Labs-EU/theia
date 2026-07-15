@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"theia/database"
+	"codeberg.org/Elysium_Labs/theia/database"
 )
 
 func TestRunSameDay20DaysAgo(t *testing.T) {

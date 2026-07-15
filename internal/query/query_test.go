@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"theia/database"
-	"theia/internal/query"
+	"codeberg.org/Elysium_Labs/theia/database"
+	"codeberg.org/Elysium_Labs/theia/internal/query"
 )
 
 func setupTestDB(t *testing.T) *sql.DB {
