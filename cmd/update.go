@@ -16,11 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
-	"golang.org/x/mod/semver"
-
 	"codeberg.org/Elysium_Labs/theia/internal/buildinfo"
 	"codeberg.org/Elysium_Labs/theia/internal/ui"
+	"github.com/spf13/cobra"
+	"golang.org/x/mod/semver"
 )
 
 const theiaRepo = "Elysium_Labs/theia"

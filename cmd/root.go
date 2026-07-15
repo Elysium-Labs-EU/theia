@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
-
 	"codeberg.org/Elysium_Labs/theia/internal/buildinfo"
+	"github.com/spf13/cobra"
 )
 
 func newRootCmd() *cobra.Command {
