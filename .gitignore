@@ -41,3 +41,5 @@ logs/*
 theia
 *.db
 .zed/
+.claude/
+AGENTS.md

@@ -39,7 +39,6 @@ func GetSummary(ctx context.Context, db *sql.DB, since time.Time, host string) (
 	q := `
 	SELECT
 		COALESCE(SUM(page_views), 0),
-		COALESCE(SUM(unique_visitors), 0),
 		COALESCE(SUM(bot_views), 0)
 	FROM hourly_stats
 	WHERE (year > ? OR (year = ? AND year_day >= ?))`
@@ -51,10 +50,36 @@ func GetSummary(ctx context.Context, db *sql.DB, since time.Time, host string) (
 	}
 
 	var s Summary
-	if err := db.QueryRowContext(ctx, q, args...).Scan(&s.Pageviews, &s.UniqueVisitors, &s.BotViews); err != nil {
+	if err := db.QueryRowContext(ctx, q, args...).Scan(&s.Pageviews, &s.BotViews); err != nil {
 		return Summary{}, fmt.Errorf("querying summary: %w", err)
 	}
+
+	uniqueVisitors, err := getUniqueVisitors(ctx, db, year, yearDay, host)
+	if err != nil {
+		return Summary{}, err
+	}
+	s.UniqueVisitors = uniqueVisitors
+
 	return s, nil
+}
+
+func getUniqueVisitors(ctx context.Context, db *sql.DB, year, yearDay int, host string) (int, error) {
+	q := `
+	SELECT COUNT(DISTINCT hash)
+	FROM visitor_days
+	WHERE (year > ? OR (year = ? AND year_day >= ?))`
+
+	args := []any{year, year, yearDay}
+	if host != "" {
+		q += " AND host = ?"
+		args = append(args, host)
+	}
+
+	var count int
+	if err := db.QueryRowContext(ctx, q, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("querying unique visitors: %w", err)
+	}
+	return count, nil
 }
 
 func GetTopPaths(ctx context.Context, db *sql.DB, since time.Time, host string, limit int) ([]PathStat, error) {
