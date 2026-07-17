@@ -158,6 +158,38 @@ func TestDownloadFileRejectsNonHTTPS(t *testing.T) {
 	}
 }
 
+func TestDownloadFileSuccess(t *testing.T) {
+	const body = "fake binary contents"
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+
+	dst := filepath.Join(t.TempDir(), "out")
+	if err := downloadFile(context.Background(), "https://codeberg.org/theia-linux-amd64", dst); err != nil {
+		t.Fatalf("downloadFile: %v", err)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != body {
+		t.Errorf("downloaded contents = %q, want %q", got, body)
+	}
+}
+
+func TestDownloadFileRejectsNon200Status(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	dst := filepath.Join(t.TempDir(), "out")
+	err := downloadFile(context.Background(), "https://codeberg.org/theia-linux-amd64", dst)
+	if err == nil {
+		t.Fatal("expected an error for a non-200 response")
+	}
+}
+
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
