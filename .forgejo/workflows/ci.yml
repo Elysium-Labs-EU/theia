@@ -57,6 +57,25 @@ jobs:
       - name: Run nilcheck
         run: nilaway ./...
 
+  crap:
+    name: CRAP Score
+    runs-on: codeberg-small
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install go-crap
+        run: go install github.com/padiazg/go-crap@latest
+
+      - name: Run crap gate
+        run: go-crap scan --fail-above
+
   verify-build:
     name: Verify Build
     runs-on: codeberg-small
