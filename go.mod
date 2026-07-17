@@ -1,6 +1,6 @@
 module codeberg.org/Elysium_Labs/theia
 
-go 1.26.1
+go 1.26.5
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0

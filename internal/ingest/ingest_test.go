@@ -14,642 +14,233 @@ import (
 	"codeberg.org/Elysium_Labs/theia/database"
 )
 
-func TestRunSameDay20DaysAgo(t *testing.T) {
+// expectedHourlyStat describes the expected shape of a single hourly_stats row
+// in the ingest-pipeline scenario tests below.
+type expectedHourlyStat struct {
+	Pageviews int
+	BotViews  int
+	IsStatic  bool
+}
+
+// cleanupCounts describes the expected row counts across the hourly/visitor
+// tables after a periodic cleanup pass.
+type cleanupCounts struct {
+	hourlyStats       int
+	hourlyStatusCodes int
+	hourlyReferrers   int
+	visitorDays       int
+}
+
+// runIngestScenario spins up a fresh test database, writes logLines to a temp
+// access log, and runs them through the tail -> pageview-processing pipeline.
+// It returns the resulting database for assertions.
+func runIngestScenario(t *testing.T, logLines []string) *sql.DB {
+	t.Helper()
 	db, tempDir := setupTestDB(t)
-	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+	t.Cleanup(func() {
+		_ = database.Close(db)
+	})
 
 	logPath := filepath.Join(tempDir, "access.log")
+	createTestLogFile(t, logPath, logLines)
 
+	pageViews := make(chan PageView, 100)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
+
+	tailArgs := []string{"-n", "+1", logPath}
+	tailLog(t.Context(), tailArgs, pageViews)
+	close(pageViews)
+	wg.Wait()
+
+	return db
+}
+
+// wantScenarioEntries is the number of test log lines every ingest scenario
+// test below writes, and therefore the row count expected in each table
+// before periodic cleanup runs.
+const wantScenarioEntries = 3
+
+func assertVisitorDayCount(t *testing.T, db *sql.DB) []VisitorDay {
+	t.Helper()
+	visitorDays := getVisitorDays(t, db)
+	if len(visitorDays) != wantScenarioEntries {
+		t.Fatalf("Expected %d entries in visitor day table, got %d instead", wantScenarioEntries, len(visitorDays))
+	}
+	return visitorDays
+}
+
+func assertAllVisitorDaysOnYearDay(t *testing.T, visitorDays []VisitorDay, year, yearDay int) {
+	t.Helper()
+	for _, visitorDay := range visitorDays {
+		if visitorDay.Year != year || visitorDay.YearDay != yearDay {
+			t.Errorf("Expected all the entries to be recorded on year_day %d of %d", yearDay, year)
+			return
+		}
+	}
+}
+
+func assertHourlyStatEntry(t *testing.T, i int, got *HourlyStats, exp expectedHourlyStat) {
+	t.Helper()
+	if got.Pageviews != exp.Pageviews {
+		t.Errorf("Entry %d: expected %d page views, got %d instead", i, exp.Pageviews, got.Pageviews)
+	}
+	if got.BotViews != exp.BotViews {
+		t.Errorf("Entry %d: expected %d bot views, got %d instead", i, exp.BotViews, got.BotViews)
+	}
+	if got.IsStatic != exp.IsStatic {
+		t.Errorf("Entry %d: expected is_static=%v, got %v instead", i, exp.IsStatic, got.IsStatic)
+	}
+}
+
+func assertHourlyStats(t *testing.T, db *sql.DB, want []expectedHourlyStat) {
+	t.Helper()
+	hourlyStats := getHourlyStats(t, db)
+	if len(hourlyStats) != len(want) {
+		t.Fatalf("Expected %d entries in hourly stats table, got %d instead", len(want), len(hourlyStats))
+	}
+	for i, exp := range want {
+		assertHourlyStatEntry(t, i, &hourlyStats[i], exp)
+	}
+}
+
+func assertAllStatusCodesAre200(t *testing.T, db *sql.DB) {
+	t.Helper()
+	const wantCode = 200
+	hourlyStatusCodes := getHourlyStatusCodes(t, db)
+	if len(hourlyStatusCodes) != wantScenarioEntries {
+		t.Errorf("Expected %d entries in hourly status codes table, got %d instead", wantScenarioEntries, len(hourlyStatusCodes))
+	}
+	for _, hourlyStatusCode := range hourlyStatusCodes {
+		if hourlyStatusCode.StatusCode != wantCode {
+			t.Errorf("Expected all the entries to have %d status code", wantCode)
+			return
+		}
+	}
+}
+
+func assertAllReferrerCountsAreOne(t *testing.T, db *sql.DB) {
+	t.Helper()
+	const wantCount = 1
+	hourlyReferrers := getHourlyReferrers(t, db)
+	if len(hourlyReferrers) != wantScenarioEntries {
+		t.Errorf("Expected %d entries in hourly referrers table, got %d instead", wantScenarioEntries, len(hourlyReferrers))
+	}
+	for _, hourlyReferrer := range hourlyReferrers {
+		if hourlyReferrer.Count != wantCount {
+			t.Errorf("Expected all the entries to have %d as count", wantCount)
+			return
+		}
+	}
+}
+
+func assertTableCount(t *testing.T, db *sql.DB, table, query string, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow(query).Scan(&got); err != nil {
+		t.Fatalf("Failed to count records: %v", err)
+	}
+	if got != want {
+		t.Errorf("Expected %d %s record remaining, got %d", want, table, got)
+	}
+}
+
+func runPeriodicCleanupAndAssertCounts(t *testing.T, db *sql.DB, want cleanupCounts) {
+	t.Helper()
+	ticker := time.NewTicker(1 * time.Second)
+	shutdown := make(chan os.Signal, 1)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go runPeriodicCleanupsWithWaitGroup(t.Context(), db, ticker, shutdown, &wg)
+
+	shutdown <- syscall.SIGTERM
+	close(shutdown)
+	wg.Wait()
+
+	assertTableCount(t, db, "hourly_stats", "SELECT COUNT(*) FROM hourly_stats", want.hourlyStats)
+	assertTableCount(t, db, "hourly_status_codes", "SELECT COUNT(*) FROM hourly_status_codes", want.hourlyStatusCodes)
+	assertTableCount(t, db, "hourly_referrers", "SELECT COUNT(*) FROM hourly_referrers", want.hourlyReferrers)
+	assertTableCount(t, db, "visitor_days", "SELECT COUNT(*) FROM visitor_days", want.visitorDays)
+}
+
+func TestRunSameDay20DaysAgo(t *testing.T) {
 	testLogLines := []string{
 		fmt.Sprintf(`192.168.1.1 - - [%s] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0" "example.com"`, time.Now().AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
 		fmt.Sprintf(`10.0.0.5 - - [%s] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
 		fmt.Sprintf(`192.168.1.100 - - [%s] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
 	}
-	createTestLogFile(t, logPath, testLogLines)
+	db := runIngestScenario(t, testLogLines)
 
-	pageViews := make(chan PageView, 100)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
-
-	tailArgs := []string{"-n", "+1", logPath}
-	tailLog(t.Context(), tailArgs, pageViews)
-	close(pageViews)
-
-	wg.Wait()
-
-	t.Log("Starting visitorDay tests")
-	visitorDays := getVisitorDays(t, db)
-	if len(visitorDays) != 3 {
-		t.Errorf("Expected 3 entries in visitor day table, got %d instead", len(visitorDays))
-	}
-	t.Log("All visitorDay tests passed")
-
-	t.Log("Starting hourlyStats tests")
-	hourlyStats := getHourlyStats(t, db)
-	if len(hourlyStats) != 3 {
-		t.Fatalf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
-	}
-
-	if hourlyStats[0].Pageviews != 1 {
-		t.Errorf("Expected first entry to have 1 page view as count, got %d instead\n", hourlyStats[0].Pageviews)
-	}
-	if hourlyStats[0].BotViews != 0 {
-		t.Errorf("Expected first entry to have 0 bot view as count, got %d instead\n", hourlyStats[0].BotViews)
-	}
-
-	if hourlyStats[1].Pageviews != 0 {
-		t.Errorf("Expected second entry to have 0 page view as count, got %d instead\n", hourlyStats[1].Pageviews)
-	}
-	if hourlyStats[1].BotViews != 1 {
-		t.Errorf("Expected second entry to have 1 bot view as count, got %d instead\n", hourlyStats[1].BotViews)
-	}
-
-	if hourlyStats[2].Pageviews != 1 {
-		t.Errorf("Expected third entry to have 1 page view as count, got %d instead\n", hourlyStats[2].Pageviews)
-	}
-	if hourlyStats[2].BotViews != 0 {
-		t.Errorf("Expected third entry to have 0 bot view as count, got %d instead\n", hourlyStats[2].BotViews)
-	}
-	t.Log("All hourlyStats tests passed")
-
-	t.Log("Starting hourlyStatusCodes tests")
-	hourlyStatusCodes := getHourlyStatusCodes(t, db)
-	if len(hourlyStatusCodes) != 3 {
-		t.Errorf("Expected 3 entries in hourly status codes table, got %d instead", len(hourlyStatusCodes))
-	}
-
-	all200StatusCodes := true
-	for _, hourlyStatusCode := range hourlyStatusCodes {
-		if hourlyStatusCode.StatusCode != 200 {
-			all200StatusCodes = false
-			break
-		}
-	}
-	if !all200StatusCodes {
-		t.Errorf("Expected all the entries to have 200 status code")
-	}
-	t.Log("All hourlyStatusCodes tests passed")
-
-	t.Log("Starting hourlyReferrer tests")
-	hourlyReferrers := getHourlyReferrers(t, db)
-	if len(hourlyReferrers) != 3 {
-		t.Errorf("Expected 3 entries in hourly referrers table, got %d instead", len(hourlyReferrers))
-	}
-
-	allReferrerCountIsOne := true
-	for _, hourlyReferrer := range hourlyReferrers {
-		if hourlyReferrer.Count != 1 {
-			allReferrerCountIsOne = false
-			break
-		}
-	}
-	if !allReferrerCountIsOne {
-		t.Errorf("Expected all the entries to have 1 as count")
-	}
-	t.Log("All hourlyReferrer tests passed")
-
-	t.Log("Starting periodicCleanUp tests")
-	ticker := time.NewTicker(1 * time.Second)
-	shutdown := make(chan os.Signal, 1)
-
-	wg.Add(1)
-	go runPeriodicCleanupsWithWaitGroup(t.Context(), db, ticker, shutdown, &wg)
-
-	shutdown <- syscall.SIGTERM
-	close(shutdown)
-	wg.Wait()
-
-	var hourlyStatsCount int
-	err := db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourlyStatsCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyStatsCount != 3 {
-		t.Errorf("Expected 3 hourly_stats record remaining, got %d", hourlyStatsCount)
-	}
-
-	var hourlyStatusCodesCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_status_codes").Scan(&hourlyStatusCodesCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyStatusCodesCount != 3 {
-		t.Errorf("Expected 3 hourly_status_codes record remaining, got %d", hourlyStatusCodesCount)
-	}
-
-	var hourlyReferrersCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_referrers").Scan(&hourlyReferrersCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyReferrersCount != 3 {
-		t.Errorf("Expected 3 hourly_referrers record remaining, got %d", hourlyReferrersCount)
-	}
-
-	var visitorDaysCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM visitor_days").Scan(&visitorDaysCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if visitorDaysCount != 3 {
-		t.Errorf("Expected 3 visitor_days record remaining, got %d", visitorDaysCount)
-	}
-	t.Log("All periodicCleanUp tests passed")
+	assertVisitorDayCount(t, db)
+	assertHourlyStats(t, db, []expectedHourlyStat{
+		{Pageviews: 1, BotViews: 0, IsStatic: false},
+		{Pageviews: 0, BotViews: 1, IsStatic: false},
+		{Pageviews: 1, BotViews: 0, IsStatic: true},
+	})
+	assertAllStatusCodesAre200(t, db)
+	assertAllReferrerCountsAreOne(t, db)
+	runPeriodicCleanupAndAssertCounts(t, db, cleanupCounts{hourlyStats: 3, hourlyStatusCodes: 3, hourlyReferrers: 3, visitorDays: 3})
 }
 
 func TestRunSameDayInThePast(t *testing.T) {
-	db, tempDir := setupTestDB(t)
-	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
-
-	logPath := filepath.Join(tempDir, "access.log")
-
 	testLogLines := []string{
 		`192.168.1.1 - - [24/Dec/2024:10:30:45 +0000] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0" "example.com"`,
 		`10.0.0.5 - - [24/Dec/2024:10:31:00 +0000] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0" "example.com"`,
 		`192.168.1.100 - - [24/Dec/2024:10:31:15 +0000] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0" "example.com"`,
 	}
-	createTestLogFile(t, logPath, testLogLines)
+	db := runIngestScenario(t, testLogLines)
 
-	pageViews := make(chan PageView, 100)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
-
-	tailArgs := []string{"-n", "+1", logPath}
-	tailLog(t.Context(), tailArgs, pageViews)
-	close(pageViews)
-
-	wg.Wait()
-
-	t.Log("Starting visitorDay tests")
-	visitorDays := getVisitorDays(t, db)
-	if len(visitorDays) != 3 {
-		t.Errorf("Expected 3 entries in visitor day table, got %d instead", len(visitorDays))
-	}
-	t.Log("All visitorDay tests passed")
-
-	allOnSameDay := true
-	for _, visitorDay := range visitorDays {
-		if visitorDay.Year != 2024 || visitorDay.YearDay != 359 {
-			allOnSameDay = false
-			break
-		}
-	}
-	if !allOnSameDay {
-		t.Errorf("Expected all the entries to be recorded on year_day 359 of 2024")
-	}
-
-	t.Log("Starting hourlyStats tests")
-	hourlyStats := getHourlyStats(t, db)
-	if len(hourlyStats) != 3 {
-		t.Fatalf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
-	}
-
-	if hourlyStats[0].Pageviews != 1 {
-		t.Errorf("Expected first entry to have 1 page view as count, got %d instead\n", hourlyStats[0].Pageviews)
-	}
-	if hourlyStats[0].BotViews != 0 {
-		t.Errorf("Expected first entry to have 0 bot view as count, got %d instead\n", hourlyStats[0].BotViews)
-	}
-	if hourlyStats[0].IsStatic {
-		t.Errorf("Expected first entry to have false as is static, got %v instead\n", hourlyStats[0].IsStatic)
-	}
-
-	if hourlyStats[1].Pageviews != 0 {
-		t.Errorf("Expected second entry to have 0 page view as count, got %d instead\n", hourlyStats[1].Pageviews)
-	}
-	if hourlyStats[1].BotViews != 1 {
-		t.Errorf("Expected second entry to have 1 bot view as count, got %d instead\n", hourlyStats[1].BotViews)
-	}
-	if hourlyStats[1].IsStatic {
-		t.Errorf("Expected second entry to have false as is static, got %v instead\n", hourlyStats[1].IsStatic)
-	}
-
-	if hourlyStats[2].Pageviews != 1 {
-		t.Errorf("Expected third entry to have 1 page view as count, got %d instead\n", hourlyStats[2].Pageviews)
-	}
-	if hourlyStats[2].BotViews != 0 {
-		t.Errorf("Expected third entry to have 0 bot view as count, got %d instead\n", hourlyStats[2].BotViews)
-	}
-	if !hourlyStats[2].IsStatic {
-		t.Errorf("Expected third entry to have true as is static, got %v instead\n", hourlyStats[2].IsStatic)
-	}
-	t.Log("All hourlyStats tests passed")
-
-	t.Log("Starting hourlyStatusCodes tests")
-	hourlyStatusCodes := getHourlyStatusCodes(t, db)
-	if len(hourlyStatusCodes) != 3 {
-		t.Errorf("Expected 3 entries in hourly status codes table, got %d instead", len(hourlyStatusCodes))
-	}
-
-	all200StatusCodes := true
-	for _, hourlyStatusCode := range hourlyStatusCodes {
-		if hourlyStatusCode.StatusCode != 200 {
-			all200StatusCodes = false
-			break
-		}
-	}
-	if !all200StatusCodes {
-		t.Errorf("Expected all the entries to have 200 status code")
-	}
-	t.Log("All hourlyStatusCodes tests passed")
-
-	t.Log("Starting hourlyReferrer tests")
-	hourlyReferrers := getHourlyReferrers(t, db)
-	if len(hourlyReferrers) != 3 {
-		t.Errorf("Expected 3 entries in hourly referrers table, got %d instead", len(hourlyReferrers))
-	}
-
-	allReferrerCountIsOne := true
-	for _, hourlyReferrer := range hourlyReferrers {
-		if hourlyReferrer.Count != 1 {
-			allReferrerCountIsOne = false
-			break
-		}
-	}
-	if !allReferrerCountIsOne {
-		t.Errorf("Expected all the entries to have 1 as count")
-	}
-	t.Log("All hourlyReferrer tests passed")
-
-	t.Log("Starting periodicCleanUp tests")
-	ticker := time.NewTicker(1 * time.Second)
-	shutdown := make(chan os.Signal, 1)
-
-	wg.Add(1)
-	go runPeriodicCleanupsWithWaitGroup(t.Context(), db, ticker, shutdown, &wg)
-
-	shutdown <- syscall.SIGTERM
-	close(shutdown)
-	wg.Wait()
-
-	var hourlyStatsCount int
-	err := db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourlyStatsCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyStatsCount != 0 {
-		t.Errorf("Expected 0 hourly_stats record remaining, got %d", hourlyStatsCount)
-	}
-
-	var hourlyStatusCodesCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_status_codes").Scan(&hourlyStatusCodesCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyStatusCodesCount != 0 {
-		t.Errorf("Expected 0 hourly_status_codes record remaining, got %d", hourlyStatusCodesCount)
-	}
-
-	var hourlyReferrersCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_referrers").Scan(&hourlyReferrersCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyReferrersCount != 0 {
-		t.Errorf("Expected 0 hourly_referrers record remaining, got %d", hourlyReferrersCount)
-	}
-
-	var visitorDaysCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM visitor_days").Scan(&visitorDaysCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if visitorDaysCount != 0 {
-		t.Errorf("Expected 0 visitor_days record remaining, got %d", visitorDaysCount)
-	}
-	t.Log("All periodicCleanUp tests passed")
+	visitorDays := assertVisitorDayCount(t, db)
+	assertAllVisitorDaysOnYearDay(t, visitorDays, 2024, 359)
+	assertHourlyStats(t, db, []expectedHourlyStat{
+		{Pageviews: 1, BotViews: 0, IsStatic: false},
+		{Pageviews: 0, BotViews: 1, IsStatic: false},
+		{Pageviews: 1, BotViews: 0, IsStatic: true},
+	})
+	assertAllStatusCodesAre200(t, db)
+	assertAllReferrerCountsAreOne(t, db)
+	runPeriodicCleanupAndAssertCounts(t, db, cleanupCounts{hourlyStats: 0, hourlyStatusCodes: 0, hourlyReferrers: 0, visitorDays: 0})
 }
 
 func TestRunDifferentDaysInNearPast(t *testing.T) {
-	db, tempDir := setupTestDB(t)
-	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
-
-	logPath := filepath.Join(tempDir, "access.log")
-
 	testLogLines := []string{
 		fmt.Sprintf(`192.168.1.1 - - [%s] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0" "example.com"`, time.Now().AddDate(0, 0, 0).Format("02/Jan/2006:15:04:05 -0700")),
 		fmt.Sprintf(`10.0.0.5 - - [%s] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -1).Format("02/Jan/2006:15:04:05 -0700")),
 		fmt.Sprintf(`192.168.1.100 - - [%s] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -2).Format("02/Jan/2006:15:04:05 -0700")),
 	}
-	createTestLogFile(t, logPath, testLogLines)
+	db := runIngestScenario(t, testLogLines)
 
-	pageViews := make(chan PageView, 100)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
-
-	tailArgs := []string{"-n", "+1", logPath}
-	tailLog(t.Context(), tailArgs, pageViews)
-	close(pageViews)
-
-	wg.Wait()
-
-	t.Log("Starting visitorDay tests")
-	visitorDays := getVisitorDays(t, db)
-	if len(visitorDays) != 3 {
-		t.Fatalf("Expected 3 entries in visitor day table, got %d instead", len(visitorDays))
-	}
-	t.Log("All visitorDay tests passed")
-
-	t.Log("Starting hourlyStats tests")
-	hourlyStats := getHourlyStats(t, db)
-	if len(hourlyStats) != 3 {
-		t.Fatalf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
-	}
-
-	if hourlyStats[0].Pageviews != 1 {
-		t.Errorf("Expected first entry to have 1 page view as count, got %d instead\n", hourlyStats[0].Pageviews)
-	}
-	if hourlyStats[0].BotViews != 0 {
-		t.Errorf("Expected first entry to have 0 bot view as count, got %d instead\n", hourlyStats[0].BotViews)
-	}
-	if hourlyStats[0].IsStatic {
-		t.Errorf("Expected first entry to have false as is static, got %v instead\n", hourlyStats[0].IsStatic)
-	}
-
-	if hourlyStats[1].Pageviews != 0 {
-		t.Errorf("Expected second entry to have 0 page view as count, got %d instead\n", hourlyStats[1].Pageviews)
-	}
-	if hourlyStats[1].BotViews != 1 {
-		t.Errorf("Expected second entry to have 1 bot view as count, got %d instead\n", hourlyStats[1].BotViews)
-	}
-	if hourlyStats[1].IsStatic {
-		t.Errorf("Expected second entry to have false as is static, got %v instead\n", hourlyStats[1].IsStatic)
-	}
-
-	if hourlyStats[2].Pageviews != 1 {
-		t.Errorf("Expected third entry to have 1 page view as count, got %d instead\n", hourlyStats[2].Pageviews)
-	}
-	if hourlyStats[2].BotViews != 0 {
-		t.Errorf("Expected third entry to have 0 bot view as count, got %d instead\n", hourlyStats[2].BotViews)
-	}
-	if !hourlyStats[2].IsStatic {
-		t.Errorf("Expected third entry to have true as is static, got %v instead\n", hourlyStats[2].IsStatic)
-	}
-	t.Log("All hourlyStats tests passed")
-
-	t.Log("Starting hourlyStatusCodes tests")
-	hourlyStatusCodes := getHourlyStatusCodes(t, db)
-	if len(hourlyStatusCodes) != 3 {
-		t.Errorf("Expected 3 entries in hourly status codes table, got %d instead", len(hourlyStatusCodes))
-	}
-
-	all200StatusCodes := true
-	for _, hourlyStatusCode := range hourlyStatusCodes {
-		if hourlyStatusCode.StatusCode != 200 {
-			all200StatusCodes = false
-			break
-		}
-	}
-	if !all200StatusCodes {
-		t.Errorf("Expected all the entries to have 200 status code")
-	}
-	t.Log("All hourlyStatusCodes tests passed")
-
-	t.Log("Starting hourlyReferrer tests")
-	hourlyReferrers := getHourlyReferrers(t, db)
-	if len(hourlyReferrers) != 3 {
-		t.Fatalf("Expected 3 entries in hourly referrers table, got %d instead", len(hourlyReferrers))
-	}
-
-	allReferrerCountIsOne := true
-	for _, hourlyReferrer := range hourlyReferrers {
-		if hourlyReferrer.Count != 1 {
-			allReferrerCountIsOne = false
-			break
-		}
-	}
-	if !allReferrerCountIsOne {
-		t.Errorf("Expected all the entries to have 1 as count")
-	}
-	t.Log("All hourlyReferrer tests passed")
-
-	t.Log("Starting periodicCleanUp tests")
-	ticker := time.NewTicker(1 * time.Second)
-	shutdown := make(chan os.Signal, 1)
-
-	wg.Add(1)
-	go runPeriodicCleanupsWithWaitGroup(t.Context(), db, ticker, shutdown, &wg)
-
-	shutdown <- syscall.SIGTERM
-	close(shutdown)
-	wg.Wait()
-
-	var hourlyStatsCount int
-	err := db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourlyStatsCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyStatsCount != 3 {
-		t.Errorf("Expected 3 hourly_stats record remaining, got %d", hourlyStatsCount)
-	}
-
-	var hourlyStatusCodesCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_status_codes").Scan(&hourlyStatusCodesCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyStatusCodesCount != 3 {
-		t.Errorf("Expected 3 hourly_status_codes record remaining, got %d", hourlyStatusCodesCount)
-	}
-
-	var hourlyReferrersCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_referrers").Scan(&hourlyReferrersCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyReferrersCount != 3 {
-		t.Errorf("Expected 3 hourly_referrers record remaining, got %d", hourlyReferrersCount)
-	}
-
-	var visitorDaysCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM visitor_days").Scan(&visitorDaysCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if visitorDaysCount != 3 {
-		t.Errorf("Expected 3 visitor_days record remaining, got %d", visitorDaysCount)
-	}
-	t.Log("All periodicCleanUp tests passed")
+	assertVisitorDayCount(t, db)
+	assertHourlyStats(t, db, []expectedHourlyStat{
+		{Pageviews: 1, BotViews: 0, IsStatic: false},
+		{Pageviews: 0, BotViews: 1, IsStatic: false},
+		{Pageviews: 1, BotViews: 0, IsStatic: true},
+	})
+	assertAllStatusCodesAre200(t, db)
+	assertAllReferrerCountsAreOne(t, db)
+	runPeriodicCleanupAndAssertCounts(t, db, cleanupCounts{hourlyStats: 3, hourlyStatusCodes: 3, hourlyReferrers: 3, visitorDays: 3})
 }
 
 func TestRunDifferentDaysInDistantPast(t *testing.T) {
-	db, tempDir := setupTestDB(t)
-	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
-
-	logPath := filepath.Join(tempDir, "access.log")
-
 	testLogLines := []string{
 		fmt.Sprintf(`192.168.1.1 - - [%s] "GET /index.html HTTP/1.1" 200 1234 "https://google.com" "Mozilla/5.0" "example.com"`, time.Now().AddDate(0, 0, -20).Format("02/Jan/2006:15:04:05 -0700")),
 		fmt.Sprintf(`10.0.0.5 - - [%s] "GET /api/data HTTP/1.1" 200 5678 "-" "curl/7.68.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -59).Format("02/Jan/2006:15:04:05 -0700")),
 		fmt.Sprintf(`192.168.1.100 - - [%s] "GET /style.css HTTP/1.1" 200 900 "https://example.com" "Mozilla/5.0" "example.com"`, time.Now().Add(15*time.Second).AddDate(0, 0, -61).Format("02/Jan/2006:15:04:05 -0700")),
 	}
-	createTestLogFile(t, logPath, testLogLines)
+	db := runIngestScenario(t, testLogLines)
 
-	pageViews := make(chan PageView, 100)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
-
-	tailArgs := []string{"-n", "+1", logPath}
-	tailLog(t.Context(), tailArgs, pageViews)
-	close(pageViews)
-
-	wg.Wait()
-
-	t.Log("Starting visitorDay tests")
-	visitorDays := getVisitorDays(t, db)
-	if len(visitorDays) != 3 {
-		t.Fatalf("Expected 3 entries in visitor day table, got %d instead", len(visitorDays))
-	}
-	t.Log("All visitorDay tests passed")
-
-	t.Log("Starting hourlyStats tests")
-	hourlyStats := getHourlyStats(t, db)
-	if len(hourlyStats) != 3 {
-		t.Fatalf("Expected 3 entries in hourly stats table, got %d instead", len(hourlyStats))
-	}
-
-	if hourlyStats[0].Pageviews != 1 {
-		t.Errorf("Expected first entry to have 1 page view as count, got %d instead\n", hourlyStats[0].Pageviews)
-	}
-	if hourlyStats[0].BotViews != 0 {
-		t.Errorf("Expected first entry to have 0 bot view as count, got %d instead\n", hourlyStats[0].BotViews)
-	}
-	if hourlyStats[0].IsStatic {
-		t.Errorf("Expected first entry to have false as is static, got %v instead\n", hourlyStats[0].IsStatic)
-	}
-
-	if hourlyStats[1].Pageviews != 0 {
-		t.Errorf("Expected second entry to have 0 page view as count, got %d instead\n", hourlyStats[1].Pageviews)
-	}
-	if hourlyStats[1].BotViews != 1 {
-		t.Errorf("Expected second entry to have 1 bot view as count, got %d instead\n", hourlyStats[1].BotViews)
-	}
-	if hourlyStats[1].IsStatic {
-		t.Errorf("Expected second entry to have false as is static, got %v instead\n", hourlyStats[1].IsStatic)
-	}
-
-	if hourlyStats[2].Pageviews != 1 {
-		t.Errorf("Expected third entry to have 1 page view as count, got %d instead\n", hourlyStats[2].Pageviews)
-	}
-	if hourlyStats[2].BotViews != 0 {
-		t.Errorf("Expected third entry to have 0 bot view as count, got %d instead\n", hourlyStats[2].BotViews)
-	}
-	if !hourlyStats[2].IsStatic {
-		t.Errorf("Expected third entry to have true as is static, got %v instead\n", hourlyStats[2].IsStatic)
-	}
-	t.Log("All hourlyStats tests passed")
-
-	t.Log("Starting hourlyStatusCodes tests")
-	hourlyStatusCodes := getHourlyStatusCodes(t, db)
-	if len(hourlyStatusCodes) != 3 {
-		t.Errorf("Expected 3 entries in hourly status codes table, got %d instead", len(hourlyStatusCodes))
-	}
-
-	all200StatusCodes := true
-	for _, hourlyStatusCode := range hourlyStatusCodes {
-		if hourlyStatusCode.StatusCode != 200 {
-			all200StatusCodes = false
-			break
-		}
-	}
-	if !all200StatusCodes {
-		t.Errorf("Expected all the entries to have 200 status code")
-	}
-	t.Log("All hourlyStatusCodes tests passed")
-
-	t.Log("Starting hourlyReferrer tests")
-	hourlyReferrers := getHourlyReferrers(t, db)
-	if len(hourlyReferrers) != 3 {
-		t.Errorf("Expected 3 entries in hourly referrers table, got %d instead", len(hourlyReferrers))
-	}
-
-	allReferrerCountIsOne := true
-	for _, hourlyReferrer := range hourlyReferrers {
-		if hourlyReferrer.Count != 1 {
-			allReferrerCountIsOne = false
-			break
-		}
-	}
-	if !allReferrerCountIsOne {
-		t.Errorf("Expected all the entries to have 1 as count")
-	}
-	t.Log("All hourlyReferrer tests passed")
-
-	t.Log("Starting periodicCleanUp tests")
-	ticker := time.NewTicker(1 * time.Second)
-	shutdown := make(chan os.Signal, 1)
-
-	wg.Add(1)
-	go runPeriodicCleanupsWithWaitGroup(t.Context(), db, ticker, shutdown, &wg)
-
-	shutdown <- syscall.SIGTERM
-	close(shutdown)
-	wg.Wait()
-
-	var hourlyStatsCount int
-	err := db.QueryRow("SELECT COUNT(*) FROM hourly_stats").Scan(&hourlyStatsCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyStatsCount != 2 {
-		t.Errorf("Expected 2 hourly_stats record remaining, got %d", hourlyStatsCount)
-	}
-
-	var hourlyStatusCodesCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_status_codes").Scan(&hourlyStatusCodesCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyStatusCodesCount != 2 {
-		t.Errorf("Expected 2 hourly_status_codes record remaining, got %d", hourlyStatusCodesCount)
-	}
-
-	var hourlyReferrersCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM hourly_referrers").Scan(&hourlyReferrersCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if hourlyReferrersCount != 2 {
-		t.Errorf("Expected 2 hourly_referrers record remaining, got %d", hourlyReferrersCount)
-	}
-
-	var visitorDaysCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM visitor_days").Scan(&visitorDaysCount)
-	if err != nil {
-		t.Fatalf("Failed to count records: %v", err)
-	}
-
-	if visitorDaysCount != 2 {
-		t.Errorf("Expected 2 visitor_days record remaining, got %d", visitorDaysCount)
-	}
-	t.Log("All periodicCleanUp tests passed")
+	assertVisitorDayCount(t, db)
+	assertHourlyStats(t, db, []expectedHourlyStat{
+		{Pageviews: 1, BotViews: 0, IsStatic: false},
+		{Pageviews: 0, BotViews: 1, IsStatic: false},
+		{Pageviews: 1, BotViews: 0, IsStatic: true},
+	})
+	assertAllStatusCodesAre200(t, db)
+	assertAllReferrerCountsAreOne(t, db)
+	runPeriodicCleanupAndAssertCounts(t, db, cleanupCounts{hourlyStats: 2, hourlyStatusCodes: 2, hourlyReferrers: 2, visitorDays: 2})
 }
 
 func newTestDB(ctx context.Context, dbPath string) (*sql.DB, error) {

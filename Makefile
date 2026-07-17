@@ -1,4 +1,4 @@
-.PHONY: help list dev build install test lint nilcheck leak-test clean docker-* test-docker-* release release-local fix setup
+.PHONY: help list dev build install test lint nilcheck crap leak-test clean docker-* test-docker-* release release-local fix setup
 .DEFAULT_GOAL := help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -11,11 +11,13 @@ BINARY_NAME=theia
 GOBIN=./bin
 INSTALL_PATH=~/.local/bin
 
-setup: ## Install dev tools (golangci-lint, nilaway) and git hooks
+setup: ## Install dev tools (golangci-lint, nilaway, go-crap) and git hooks
 	@echo "Installing golangci-lint v2.11.0..."
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v2.11.0
 	@echo "Installing nilaway (nil pointer static analysis)..."
 	go install go.uber.org/nilaway/cmd/nilaway@latest
+	@echo "Installing go-crap (CRAP score analysis)..."
+	go install github.com/padiazg/go-crap@latest
 	@echo "Setup complete."
 
 help: ## Show this help
@@ -59,6 +61,16 @@ nilcheck: ## Static nil-pointer safety analysis (requires: go install go.uber.or
 	@command -v nilaway >/dev/null 2>&1 || { echo "nilaway not found. Run: make setup"; exit 1; }
 	nilaway ./...
 
+crap: ## Change-scoped CRAP gate (fails only on functions this change modified; requires: go install github.com/padiazg/go-crap@latest)
+	@echo "Running change-scoped go-crap CRAP gate..."
+	@command -v go-crap >/dev/null 2>&1 || { echo "go-crap not found. Run: make setup"; exit 1; }
+	bash scripts/go-crap-gate.sh .
+
+crap-report: ## Full whole-repo CRAP report (informational, non-blocking)
+	@echo "Running whole-repo go-crap CRAP report..."
+	@command -v go-crap >/dev/null 2>&1 || { echo "go-crap not found. Run: make setup"; exit 1; }
+	go-crap scan
+
 leak-test: ## Run tests with goroutine leak detection
 	@echo "Running tests with goroutine leak detection..."
 	go test ./... -count=1 -timeout=60s -v 2>&1 | grep -E "(PASS|FAIL|leak|goroutine)" || true
@@ -72,6 +84,7 @@ ci: ## Run all CI checks locally (runs all, reports all failures)
 	$(MAKE) test || failed=1; \
 	$(MAKE) lint || failed=1; \
 	$(MAKE) nilcheck || failed=1; \
+	$(MAKE) crap || failed=1; \
 	if [ $$failed -ne 0 ]; then echo "CI checks FAILED"; exit 1; fi; \
 	echo "All CI checks passed!"
 

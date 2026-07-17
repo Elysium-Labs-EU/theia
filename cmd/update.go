@@ -113,6 +113,21 @@ func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
 // plain https://codeberg.org URL, since this is used to fetch and then
 // execute-in-place a new theia binary.
 func downloadFile(ctx context.Context, downloadURL, destPath string) error {
+	if err := validateDownloadHost(downloadURL); err != nil {
+		return err
+	}
+
+	resp, err := fetchDownload(ctx, downloadURL)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	return writeDownloadBody(resp, destPath, downloadURL)
+}
+
+// validateDownloadHost refuses anything but a plain https://codeberg.org URL.
+func validateDownloadHost(downloadURL string) error {
 	u, err := url.Parse(downloadURL)
 	if err != nil {
 		return fmt.Errorf("parsing download URL: %w", err)
@@ -120,25 +135,34 @@ func downloadFile(ctx context.Context, downloadURL, destPath string) error {
 	if u.Scheme != "https" || u.Host != "codeberg.org" {
 		return fmt.Errorf("refusing to download from untrusted host %q", u.Host)
 	}
+	return nil
+}
 
+// fetchDownload issues the GET request for downloadURL and validates the
+// response status. The caller owns closing the returned response body.
+func fetchDownload(ctx context.Context, downloadURL string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return fmt.Errorf("building download request: %w", err)
+		return nil, fmt.Errorf("building download request: %w", err)
 	}
 
 	resp, err := httpClient.Do(req) // #nosec G704 -- downloadURL is validated above to be https://codeberg.org
 	if err != nil {
-		return fmt.Errorf("downloading %s: %w", downloadURL, err)
+		return nil, fmt.Errorf("downloading %s: %w", downloadURL, err)
 	}
 	if resp == nil {
-		return fmt.Errorf("downloading %s: nil response", downloadURL)
+		return nil, fmt.Errorf("downloading %s: nil response", downloadURL)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("downloading %s: unexpected status %s", downloadURL, resp.Status)
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("downloading %s: unexpected status %s", downloadURL, resp.Status)
 	}
+	return resp, nil
+}
 
+// writeDownloadBody streams resp's body to destPath and checks the byte
+// count against the response's declared content length, if any.
+func writeDownloadBody(resp *http.Response, destPath, downloadURL string) error {
 	out, err := os.Create(destPath) //nolint:gosec // destPath is a caller-controlled temp path
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", destPath, err)
@@ -320,35 +344,20 @@ func startService(ctx context.Context, out io.Writer) {
 // can be exercised in tests without touching the test binary itself
 // (os.Executable() under `go test` is the test binary).
 func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion string, includePre bool) error {
-	var rel Release
-	err := ui.WithSpinner("Checking for updates...", func() error {
-		var err error
-		rel, err = fetchLatestRelease(ctx, includePre)
-		return err
-	})
+	rel, latestVer, err := resolveLatestRelease(ctx, includePre)
 	if err != nil {
-		return fmt.Errorf("checking for updates: %w", err)
+		return err
 	}
 
-	currentVer, latestVer := normalizeSemver(currentVersion), rel.TagName
-	if semver.IsValid(currentVer) && semver.IsValid(latestVer) && semver.Compare(currentVer, latestVer) >= 0 {
+	if isAlreadyLatest(currentVersion, latestVer) {
 		_, _ = fmt.Fprintf(out, "%s already on the latest version (%s)\n", ui.LabelSuccess.Render("✓"), currentVersion)
 		return nil
 	}
-
 	_, _ = fmt.Fprintf(out, "%s new version available: %s -> %s\n", ui.LabelInfo.Render("i"), currentVersion, latestVer)
 
-	arch, err := hostArch()
+	asset, checksums, err := selectUpdateAssets(rel, latestVer)
 	if err != nil {
 		return err
-	}
-	asset, ok := rel.AssetFor(arch)
-	if !ok {
-		return &ui.UserError{Err: fmt.Errorf("release %s has no asset for linux-%s", latestVer, arch)}
-	}
-	checksums, ok := rel.ChecksumsAsset()
-	if !ok {
-		return &ui.UserError{Err: fmt.Errorf("release %s is missing sha256sums.txt", latestVer)}
 	}
 
 	if writeErr := checkWritable(filepath.Dir(exePath)); writeErr != nil {
@@ -364,27 +373,85 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
+	binTmp, err := downloadAndVerifyUpdate(ctx, out, tmpDir, latestVer, asset, checksums)
+	if err != nil {
+		return err
+	}
+
+	return installUpdate(ctx, out, exePath, binTmp, currentVersion, latestVer)
+}
+
+// resolveLatestRelease checks Codeberg for the latest (or latest including
+// pre-release) theia release and returns it alongside its tag name.
+func resolveLatestRelease(ctx context.Context, includePre bool) (Release, string, error) {
+	var rel Release
+	err := ui.WithSpinner("Checking for updates...", func() error {
+		var err error
+		rel, err = fetchLatestRelease(ctx, includePre)
+		return err
+	})
+	if err != nil {
+		return Release{}, "", fmt.Errorf("checking for updates: %w", err)
+	}
+	return rel, rel.TagName, nil
+}
+
+// isAlreadyLatest reports whether currentVersion is already at or ahead of
+// latestVer. Non-semver versions (e.g. dev builds) are treated as not
+// up to date so an update always proceeds.
+func isAlreadyLatest(currentVersion, latestVer string) bool {
+	currentVer := normalizeSemver(currentVersion)
+	return semver.IsValid(currentVer) && semver.IsValid(latestVer) && semver.Compare(currentVer, latestVer) >= 0
+}
+
+// selectUpdateAssets picks the platform binary and checksums file out of
+// rel, failing with a user-facing error if either is missing.
+func selectUpdateAssets(rel Release, latestVer string) (Asset, Asset, error) {
+	arch, err := hostArch()
+	if err != nil {
+		return Asset{}, Asset{}, err
+	}
+	asset, ok := rel.AssetFor(arch)
+	if !ok {
+		return Asset{}, Asset{}, &ui.UserError{Err: fmt.Errorf("release %s has no asset for linux-%s", latestVer, arch)}
+	}
+	checksums, ok := rel.ChecksumsAsset()
+	if !ok {
+		return Asset{}, Asset{}, &ui.UserError{Err: fmt.Errorf("release %s is missing sha256sums.txt", latestVer)}
+	}
+	return asset, checksums, nil
+}
+
+// downloadAndVerifyUpdate downloads the release binary and its checksums
+// file into tmpDir and verifies the binary's checksum, returning the path
+// to the verified binary.
+func downloadAndVerifyUpdate(ctx context.Context, out io.Writer, tmpDir, latestVer string, asset, checksums Asset) (string, error) {
 	binTmp := filepath.Join(tmpDir, "theia")
-	err = ui.WithSpinner(fmt.Sprintf("Downloading %s...", latestVer), func() error {
+	err := ui.WithSpinner(fmt.Sprintf("Downloading %s...", latestVer), func() error {
 		return downloadFile(ctx, asset.DownloadURL, binTmp)
 	})
 	if err != nil {
-		return fmt.Errorf("downloading update: %w", err)
+		return "", fmt.Errorf("downloading update: %w", err)
 	}
 
 	checksumsTmp := filepath.Join(tmpDir, "sha256sums.txt")
 	if dlErr := downloadFile(ctx, checksums.DownloadURL, checksumsTmp); dlErr != nil {
-		return fmt.Errorf("downloading checksums: %w", dlErr)
+		return "", fmt.Errorf("downloading checksums: %w", dlErr)
 	}
 	checksumsData, err := os.ReadFile(checksumsTmp) //nolint:gosec // fixed name in a theia-owned temp dir
 	if err != nil {
-		return fmt.Errorf("reading checksums: %w", err)
+		return "", fmt.Errorf("reading checksums: %w", err)
 	}
 	if verifyErr := verifyChecksum(binTmp, string(checksumsData), asset.Name); verifyErr != nil {
-		return &ui.UserError{Err: verifyErr}
+		return "", &ui.UserError{Err: verifyErr}
 	}
 	_, _ = fmt.Fprintf(out, "%s checksum verified\n", ui.LabelSuccess.Render("✓"))
+	return binTmp, nil
+}
 
+// installUpdate backs up the current binary, stops theia.service if it's
+// running, swaps in binTmp, and restarts the service if it was stopped.
+func installUpdate(ctx context.Context, out io.Writer, exePath, binTmp, currentVersion, latestVer string) error {
 	backupPath := exePath + ".backup"
 	if backupErr := copyFile(exePath, backupPath); backupErr != nil {
 		_, _ = fmt.Fprintf(out, "%s could not create backup of the current binary: %v\n", ui.LabelWarning.Render("warning"), backupErr)

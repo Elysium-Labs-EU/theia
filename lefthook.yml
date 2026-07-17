@@ -7,3 +7,8 @@ pre-commit:
     - name: tests
       run: go test . ./database -v
       interactive: true
+
+pre-push:
+  jobs:
+    - name: crap
+      run: make crap
