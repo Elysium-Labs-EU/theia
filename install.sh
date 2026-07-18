@@ -507,7 +507,10 @@ main() {
         step "Downloading ${BINARY_NAME} ${version} for linux-${arch}..."
 
         local download_url="${CODEBERG_URL}/${REPO}/releases/download/${version}/theia-linux-${arch}"
-        tmp_binary="/tmp/${BINARY_NAME}"
+        local tmp_dir
+        tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/theia-install.XXXXXXXX")" || { error "Failed to create secure temp dir"; exit 1; }
+        trap 'rm -rf "$tmp_dir"' EXIT
+        tmp_binary="${tmp_dir}/${BINARY_NAME}"
 
         if ! download_file "$download_url" "$tmp_binary" "$download_tool"; then
             error "Download failed"
