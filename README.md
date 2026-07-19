@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/logo.svg" alt="theia logo" width="120" height="120">
+</p>
+
 # theia - Privacy-Friendly Page View Tracker
 
 ## Overview
