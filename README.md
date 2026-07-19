@@ -1,5 +1,9 @@
 # theia - Privacy-First Server-Side Analytics
 
+[![Codeberg](https://img.shields.io/badge/Codeberg-theia-blue?logo=codeberg)](https://codeberg.org/Elysium_Labs/theia)
+
+Codeberg is the canonical repository. GitHub is a read-only mirror; PRs opened there won't be reviewed.
+
 ## Overview
 
 Server-side analytics tool that tracks page views by parsing nginx access logs. No client-side JavaScript required, making it resistant to ad-blockers.
