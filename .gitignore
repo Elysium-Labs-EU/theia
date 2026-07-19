@@ -39,3 +39,7 @@ TODO.MD
 test-files*/*
 logs/*
 theia
+*.db
+.zed/
+.claude/
+AGENTS.md

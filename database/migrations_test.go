@@ -3,12 +3,13 @@ package database_test
 import (
 	"database/sql"
 	"embed"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"theia/database"
 
+	"github.com/Elysium-Labs-EU/theia/database"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite"
 )
@@ -20,15 +21,15 @@ func TestMigrations(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	db, err := database.Open(dbPath)
+	db, err := database.Open(t.Context(), dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
-	defer database.Close(db)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
 	t.Log("Running up migrations...")
-	if err := database.RunMigrations(db, testMigrationsFS, "migrations"); err != nil {
-		t.Fatalf("Failed to run up migrations: %v", err)
+	if migrationsErr := database.RunMigrations(db, testMigrationsFS, "migrations"); migrationsErr != nil {
+		t.Fatalf("Failed to run up migrations: %v", migrationsErr)
 	}
 
 	expectedVersion := getExpectedVersion(t, "migrations")
@@ -53,8 +54,8 @@ func TestMigrations(t *testing.T) {
 	t.Log("Data insertion successful")
 
 	t.Log("Running down migration...")
-	if err := runDownMigration(db, "migrations"); err != nil {
-		t.Fatalf("Failed to run down migration: %v", err)
+	if migrationsErr := runDownMigration(db, "migrations"); migrationsErr != nil {
+		t.Fatalf("Failed to run down migration: %v", migrationsErr)
 	}
 	t.Log("Down migration successful")
 
@@ -63,8 +64,8 @@ func TestMigrations(t *testing.T) {
 	t.Log("All tables successfully removed")
 
 	t.Log("Running up migration again to test reversibility...")
-	if err := database.RunMigrations(db, testMigrationsFS, "migrations"); err != nil {
-		t.Fatalf("Failed to run up migrations second time: %v", err)
+	if migrationsErr := database.RunMigrations(db, testMigrationsFS, "migrations"); migrationsErr != nil {
+		t.Fatalf("Failed to run up migrations second time: %v", migrationsErr)
 	}
 	t.Log("Second up migration successful - migrations are fully reversible")
 
@@ -93,7 +94,7 @@ func getExpectedVersion(t *testing.T, migrationsDir string) uint {
 	var migrationCount uint
 	for _, file := range files {
 		if strings.HasSuffix(file.Name(), ".up.sql") {
-			migrationCount += 1
+			migrationCount++
 		}
 	}
 
@@ -108,7 +109,7 @@ func verifyTablesExist(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	expectedTables := []string{
-		"visitor_hashes",
+		"visitor_days",
 		"hourly_stats",
 		"hourly_status_codes",
 		"hourly_referrers",
@@ -131,7 +132,7 @@ func verifyTablesRemoved(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	expectedTables := []string{
-		"visitor_hashes",
+		"visitor_days",
 		"hourly_stats",
 		"hourly_status_codes",
 		"hourly_referrers",
@@ -154,17 +155,17 @@ func testDataInsertion(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	_, err := db.Exec(`
-		INSERT INTO visitor_hashes (hash, hour_bucket, first_seen)
-		VALUES (?, ?, datetime('now'))
-	`, "test_hash_123", 14)
+		INSERT INTO visitor_days (hash, host, year, year_day, first_seen)
+		VALUES (?, ?, ?, ?, datetime('now'))
+	`, "test_hash_123", "example.com", 2024, 1)
 	if err != nil {
-		t.Fatalf("Failed to insert into visitor_hashes: %v", err)
+		t.Fatalf("Failed to insert into visitor_days: %v", err)
 	}
 
 	_, err = db.Exec(`
-		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, is_static, unique_visitors, bot_views)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, 14, 1, 2024, "/test", "example.com", 1, 0, 1, 0)
+		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, is_static, bot_views)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, 14, 1, 2024, "/test", "example.com", 1, 0, 0)
 	if err != nil {
 		t.Fatalf("Failed to insert into hourly_stats: %v", err)
 	}
@@ -186,7 +187,7 @@ func testDataInsertion(t *testing.T, db *sql.DB) {
 	}
 
 	var hash string
-	err = db.QueryRow(`SELECT hash FROM visitor_hashes WHERE hash = ?`, "test_hash_123").Scan(&hash)
+	err = db.QueryRow(`SELECT hash FROM visitor_days WHERE hash = ?`, "test_hash_123").Scan(&hash)
 	if err != nil {
 		t.Fatalf("Failed to read back inserted data: %v", err)
 	}
@@ -211,7 +212,7 @@ func runDownMigration(db *sql.DB, migrationsPath string) error {
 		return err
 	}
 
-	if err := m.Down(); err != nil && err != migrate.ErrNoChange {
+	if err := m.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return err
 	}
 
