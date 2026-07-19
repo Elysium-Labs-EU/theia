@@ -1,8 +1,12 @@
+<p align="center">
+  <img src=".github/logo.svg" alt="theia logo" width="120" height="120">
+</p>
+
 # theia - Privacy-First Server-Side Analytics
 
-[![Codeberg](https://img.shields.io/badge/Codeberg-theia-blue?logo=codeberg)](https://codeberg.org/Elysium_Labs/theia)
+[![GitHub](https://img.shields.io/badge/GitHub-theia-blue?logo=github)](https://github.com/Elysium-Labs-EU/theia)
 
-Codeberg is the canonical repository. GitHub is a read-only mirror; PRs opened there won't be reviewed.
+GitHub is the canonical repository. The Codeberg copy is a read-only mirror. Please open issues and PRs on GitHub.
 
 ## Overview
 
@@ -14,13 +18,13 @@ Server-side analytics tool that tracks page views by parsing nginx access logs. 
 
 Using curl
 ```bash
-curl -sSL https://codeberg.org/Elysium_Labs/theia/raw/branch/main/install.sh -o install.sh
+curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh -o install.sh
 sudo bash install.sh
 ```
 
 Using wget
 ```bash
-wget https://codeberg.org/Elysium_Labs/theia/raw/branch/main/install.sh
+wget https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh
 sudo bash install.sh
 ```
 
@@ -46,7 +50,7 @@ If you prefer to build from source:
 
 ```bash
 # Clone and build
-git clone https://codeberg.org/Elysium_Labs/theia
+git clone https://github.com/Elysium-Labs-EU/theia.git
 cd theia
 go build -o theia
 

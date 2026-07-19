@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"codeberg.org/Elysium_Labs/theia/database"
+	"github.com/Elysium-Labs-EU/theia/database"
 )
 
 func Run(ctx context.Context, dbPath string, logPath string) error {

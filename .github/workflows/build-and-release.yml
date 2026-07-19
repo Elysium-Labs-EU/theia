@@ -19,12 +19,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
 
       - name: Install dependencies
         run: go mod download
@@ -61,12 +61,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
 
       - name: Install dependencies
         run: go mod download
@@ -85,7 +85,7 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
           go build \
-            -ldflags="-s -w -X 'theia/internal/buildinfo.Version=${{ steps.info.outputs.version }}' -X 'theia/internal/buildinfo.GitCommit=${{ steps.info.outputs.commit }}' -X 'theia/internal/buildinfo.BuildDate=${{ steps.info.outputs.date }}'" \
+            -ldflags="-s -w -X 'github.com/Elysium-Labs-EU/theia/internal/buildinfo.Version=${{ steps.info.outputs.version }}' -X 'github.com/Elysium-Labs-EU/theia/internal/buildinfo.GitCommit=${{ steps.info.outputs.commit }}' -X 'github.com/Elysium-Labs-EU/theia/internal/buildinfo.BuildDate=${{ steps.info.outputs.date }}'" \
             -o ${{ matrix.artifact }} .
 
       - name: Verify binary
@@ -94,7 +94,7 @@ jobs:
           file ${{ matrix.artifact }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -111,10 +111,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -146,7 +146,7 @@ jobs:
           fi
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.version }}
           files: |

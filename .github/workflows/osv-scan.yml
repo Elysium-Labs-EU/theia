@@ -19,7 +19,7 @@ permissions:
 jobs:
   osv-scan:
     name: OSV Scanner
-    runs-on: codeberg-small
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7

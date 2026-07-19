@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"codeberg.org/Elysium_Labs/theia/internal/ingest"
+	"github.com/Elysium-Labs-EU/theia/internal/ingest"
 	"github.com/spf13/cobra"
 )
 

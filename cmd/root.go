@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"codeberg.org/Elysium_Labs/theia/internal/buildinfo"
+	"github.com/Elysium-Labs-EU/theia/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
 

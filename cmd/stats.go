@@ -8,8 +8,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"codeberg.org/Elysium_Labs/theia/database"
-	"codeberg.org/Elysium_Labs/theia/internal/query"
+	"github.com/Elysium-Labs-EU/theia/database"
+	"github.com/Elysium-Labs-EU/theia/internal/query"
 	"github.com/spf13/cobra"
 )
 

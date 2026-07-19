@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 
-	"codeberg.org/Elysium_Labs/theia/internal/ui"
+	"github.com/Elysium-Labs-EU/theia/internal/ui"
 	"github.com/spf13/cobra"
 )
 

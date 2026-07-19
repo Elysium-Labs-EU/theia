@@ -11,24 +11,22 @@ on:
       - develop
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   test:
     name: Test
-    runs-on: codeberg-small
-    container:
-      image: ghcr.io/catthehacker/ubuntu:act-latest
-      volumes:
-        - gomodcache-theia:/root/go/pkg/mod
-        - gobuildcache-theia:/root/.cache/go-build
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: false
 
       - name: Install dependencies
         run: go mod download
@@ -41,21 +39,15 @@ jobs:
 
   nilaway:
     name: Nilaway
-    runs-on: codeberg-small
-    container:
-      image: ghcr.io/catthehacker/ubuntu:act-latest
-      volumes:
-        - gomodcache-theia:/root/go/pkg/mod
-        - gobuildcache-theia:/root/.cache/go-build
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: false
 
       - name: Install nilaway
         run: go install go.uber.org/nilaway/cmd/nilaway@latest
@@ -65,7 +57,7 @@ jobs:
 
   crap:
     name: CRAP Score
-    runs-on: codeberg-small
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -73,10 +65,9 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
 
       - name: Install go-crap
         run: go install github.com/padiazg/go-crap@latest
@@ -88,21 +79,15 @@ jobs:
 
   verify-build:
     name: Verify Build
-    runs-on: codeberg-small
-    container:
-      image: ghcr.io/catthehacker/ubuntu:act-latest
-      volumes:
-        - gomodcache-theia:/root/go/pkg/mod
-        - gobuildcache-theia:/root/.cache/go-build
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: false
 
       - name: Verify code compiles
         run: go build -v ./...

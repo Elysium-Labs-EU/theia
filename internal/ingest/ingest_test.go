@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/Elysium_Labs/theia/database"
+	"github.com/Elysium-Labs-EU/theia/database"
 )
 
 // expectedHourlyStat describes the expected shape of a single hourly_stats row
