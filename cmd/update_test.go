@@ -15,7 +15,7 @@ import (
 )
 
 // hostRedirectTransport rewrites any request to hit addr over plain HTTP.
-// Lets tests intercept the hardcoded codeberg.org URLs in fetchLatestRelease
+// Lets tests intercept the hardcoded GitHub URLs in fetchLatestRelease
 // and downloadFile.
 type hostRedirectTransport struct{ addr string }
 
@@ -121,9 +121,9 @@ func TestFetchLatestReleaseIncludePreBadJSON(t *testing.T) {
 func TestReleaseAssetFor(t *testing.T) {
 	rel := Release{
 		Assets: []Asset{
-			{Name: "theia-linux-amd64", DownloadURL: "https://codeberg.org/x/amd64"},
-			{Name: "theia-linux-arm64", DownloadURL: "https://codeberg.org/x/arm64"},
-			{Name: "sha256sums.txt", DownloadURL: "https://codeberg.org/x/sums"},
+			{Name: "theia-linux-amd64", DownloadURL: "https://github.com/x/amd64"},
+			{Name: "theia-linux-arm64", DownloadURL: "https://github.com/x/arm64"},
+			{Name: "sha256sums.txt", DownloadURL: "https://github.com/x/sums"},
 		},
 	}
 
@@ -146,13 +146,13 @@ func TestDownloadFileRejectsUntrustedHost(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "out")
 	err := downloadFile(context.Background(), "https://evil.example.com/theia", dst)
 	if err == nil {
-		t.Fatal("expected an error for a non-codeberg.org host")
+		t.Fatal("expected an error for a non-github.com host")
 	}
 }
 
 func TestDownloadFileRejectsNonHTTPS(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "out")
-	err := downloadFile(context.Background(), "http://codeberg.org/theia", dst)
+	err := downloadFile(context.Background(), "http://github.com/theia", dst)
 	if err == nil {
 		t.Fatal("expected an error for a non-https scheme")
 	}
@@ -165,7 +165,7 @@ func TestDownloadFileSuccess(t *testing.T) {
 	})
 
 	dst := filepath.Join(t.TempDir(), "out")
-	if err := downloadFile(context.Background(), "https://codeberg.org/theia-linux-amd64", dst); err != nil {
+	if err := downloadFile(context.Background(), "https://github.com/theia-linux-amd64", dst); err != nil {
 		t.Fatalf("downloadFile: %v", err)
 	}
 
@@ -184,7 +184,7 @@ func TestDownloadFileRejectsNon200Status(t *testing.T) {
 	})
 
 	dst := filepath.Join(t.TempDir(), "out")
-	err := downloadFile(context.Background(), "https://codeberg.org/theia-linux-amd64", dst)
+	err := downloadFile(context.Background(), "https://github.com/theia-linux-amd64", dst)
 	if err == nil {
 		t.Fatal("expected an error for a non-200 response")
 	}

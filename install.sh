@@ -10,8 +10,8 @@ readonly BOLD='\033[1m'
 readonly DIM='\033[2m'
 readonly NC='\033[0m'
 
-readonly REPO="Elysium_Labs/theia"
-readonly CODEBERG_URL="https://codeberg.org"
+readonly REPO="Elysium-Labs-EU/theia"
+readonly GITHUB_URL="https://github.com"
 readonly BINARY_NAME="theia"
 readonly INSTALL_DIR="${THEIA_INSTALL_DIR:-/usr/local/bin}"
 readonly DATA_DIR="/var/lib/theia"
@@ -46,7 +46,7 @@ usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --local <path>    Use a local binary instead of downloading from Codeberg"
+    echo "  --local <path>    Use a local binary instead of downloading from GitHub"
     echo "  --help            Show this help message"
     echo "  --yes, -y         Skip all confirmation prompts (non-interactive mode)"
     echo ""
@@ -462,7 +462,7 @@ main() {
         version="${THEIA_VERSION:-}"
         if [ -z "$version" ]; then
             step "Fetching latest version..."
-            version=$(fetch_json_field "${CODEBERG_URL}/api/v1/repos/${REPO}/releases?limit=1" "tag_name" "$download_tool")
+            version=$(fetch_json_field "https://api.github.com/repos/${REPO}/releases?per_page=1" "tag_name" "$download_tool")
 
             if [ -z "$version" ]; then
                 error "Failed to fetch latest version"
@@ -483,7 +483,7 @@ main() {
     if [ -n "$local_binary" ]; then
         echo "  1. Use local binary: ${local_binary}"
     else
-        echo "  1. Download binary from Codeberg"
+        echo "  1. Download binary from GitHub"
     fi
     echo "  2. Install to ${INSTALL_DIR}/${BINARY_NAME}"
     echo "  3. Install sqlite3 CLI (optional, for querying ${DATA_DIR}/theia.db)"
@@ -506,7 +506,7 @@ main() {
         echo ""
         step "Downloading ${BINARY_NAME} ${version} for linux-${arch}..."
 
-        local download_url="${CODEBERG_URL}/${REPO}/releases/download/${version}/theia-linux-${arch}"
+        local download_url="${GITHUB_URL}/${REPO}/releases/download/${version}/theia-linux-${arch}"
         local tmp_dir
         tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/theia-install.XXXXXXXX")" || { error "Failed to create secure temp dir"; exit 1; }
         trap 'rm -rf "$tmp_dir"' EXIT

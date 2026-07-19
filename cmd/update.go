@@ -16,13 +16,13 @@ import (
 	"strings"
 	"time"
 
-	"codeberg.org/Elysium_Labs/theia/internal/buildinfo"
-	"codeberg.org/Elysium_Labs/theia/internal/ui"
+	"github.com/Elysium-Labs-EU/theia/internal/buildinfo"
+	"github.com/Elysium-Labs-EU/theia/internal/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 )
 
-const theiaRepo = "Elysium_Labs/theia"
+const theiaRepo = "Elysium-Labs-EU/theia"
 
 const theiaService = "theia.service"
 
@@ -30,13 +30,18 @@ var httpClient = &http.Client{
 	Timeout: 15 * time.Second,
 }
 
-// Asset is one file attached to a Codeberg release.
+// updateUserAgent is sent on every request to the GitHub release API and asset
+// downloads. The GitHub REST API rejects requests without a User-Agent with a
+// 403, unlike the Gitea/Codeberg API this updater previously targeted.
+const updateUserAgent = "theia-updater"
+
+// Asset is one file attached to a GitHub release.
 type Asset struct {
 	Name        string `json:"name"`
 	DownloadURL string `json:"browser_download_url"`
 }
 
-// Release is the subset of Codeberg's release API response theia needs.
+// Release is the subset of GitHub's release API response theia needs.
 type Release struct {
 	TagName string  `json:"tag_name"`
 	Assets  []Asset `json:"assets"`
@@ -63,22 +68,24 @@ func (r Release) ChecksumsAsset() (Asset, bool) {
 	return Asset{}, false
 }
 
-// fetchLatestRelease fetches the latest theia release from Codeberg.
-// Codeberg's "latest" endpoint only ever returns stable (non-prerelease)
-// releases, so when includePre is true this instead lists all releases
-// (newest first) and returns the first one — the only way to reach a
-// release while every published version is still a pre-release.
+// fetchLatestRelease fetches the latest theia release from GitHub.
+// GitHub's "latest" endpoint only ever returns stable (non-prerelease,
+// non-draft) releases, so when includePre is true this instead lists all
+// releases (newest first) and returns the first one — the only way to reach
+// a release while every published version is still a pre-release.
 func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
-	reqURL := fmt.Sprintf("https://codeberg.org/api/v1/repos/%s/releases/latest", theiaRepo)
+	reqURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", theiaRepo)
 	if includePre {
-		reqURL = fmt.Sprintf("https://codeberg.org/api/v1/repos/%s/releases", theiaRepo)
+		reqURL = fmt.Sprintf("https://api.github.com/repos/%s/releases", theiaRepo)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return Release{}, fmt.Errorf("building release request: %w", err)
 	}
+	req.Header.Set("User-Agent", updateUserAgent)
+	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := httpClient.Do(req) // #nosec G704 -- URL is constructed from a hardcoded Codeberg API base, not user input
+	resp, err := httpClient.Do(req) // #nosec G704 -- URL is constructed from a hardcoded GitHub API base, not user input
 	if err != nil {
 		return Release{}, fmt.Errorf("fetching latest release: %w", err)
 	}
@@ -110,7 +117,7 @@ func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
 }
 
 // downloadFile fetches downloadURL to destPath. It refuses anything but a
-// plain https://codeberg.org URL, since this is used to fetch and then
+// plain https://github.com URL, since this is used to fetch and then
 // execute-in-place a new theia binary.
 func downloadFile(ctx context.Context, downloadURL, destPath string) error {
 	if err := validateDownloadHost(downloadURL); err != nil {
@@ -126,13 +133,13 @@ func downloadFile(ctx context.Context, downloadURL, destPath string) error {
 	return writeDownloadBody(resp, destPath, downloadURL)
 }
 
-// validateDownloadHost refuses anything but a plain https://codeberg.org URL.
+// validateDownloadHost refuses anything but a plain https://github.com URL.
 func validateDownloadHost(downloadURL string) error {
 	u, err := url.Parse(downloadURL)
 	if err != nil {
 		return fmt.Errorf("parsing download URL: %w", err)
 	}
-	if u.Scheme != "https" || u.Host != "codeberg.org" {
+	if u.Scheme != "https" || u.Host != "github.com" {
 		return fmt.Errorf("refusing to download from untrusted host %q", u.Host)
 	}
 	return nil
@@ -145,8 +152,9 @@ func fetchDownload(ctx context.Context, downloadURL string) (*http.Response, err
 	if err != nil {
 		return nil, fmt.Errorf("building download request: %w", err)
 	}
+	req.Header.Set("User-Agent", updateUserAgent)
 
-	resp, err := httpClient.Do(req) // #nosec G704 -- downloadURL is validated above to be https://codeberg.org
+	resp, err := httpClient.Do(req) // #nosec G704 -- downloadURL is validated above to be https://github.com
 	if err != nil {
 		return nil, fmt.Errorf("downloading %s: %w", downloadURL, err)
 	}
@@ -381,7 +389,7 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 	return installUpdate(ctx, out, exePath, binTmp, currentVersion, latestVer)
 }
 
-// resolveLatestRelease checks Codeberg for the latest (or latest including
+// resolveLatestRelease checks GitHub for the latest (or latest including
 // pre-release) theia release and returns it alongside its tag name.
 func resolveLatestRelease(ctx context.Context, includePre bool) (Release, string, error) {
 	var rel Release
