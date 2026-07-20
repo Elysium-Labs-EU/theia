@@ -3,13 +3,18 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -381,5 +386,225 @@ func TestStopServiceNoopWhenInactive(t *testing.T) {
 	buf := &bytes.Buffer{}
 	if stopService(context.Background(), buf) {
 		t.Error("stopService() = true, want false when theia.service isn't active")
+	}
+}
+
+func TestReleaseSignatureAsset(t *testing.T) {
+	rel := Release{
+		Assets: []Asset{
+			{Name: "theia-linux-amd64", DownloadURL: "https://github.com/x/amd64"},
+			{Name: "sha256sums.txt.sig", DownloadURL: "https://github.com/x/sig"},
+		},
+	}
+	sig, ok := rel.SignatureAsset()
+	if !ok || sig.Name != "sha256sums.txt.sig" {
+		t.Fatalf("SignatureAsset() = %+v, %v", sig, ok)
+	}
+
+	noSig := Release{Assets: []Asset{{Name: "theia-linux-amd64"}}}
+	if _, ok := noSig.SignatureAsset(); ok {
+		t.Error("SignatureAsset() should not match when no sig asset is present")
+	}
+}
+
+func TestParseReleaseSigningPublicKey(t *testing.T) {
+	pub, err := parseReleaseSigningPublicKey()
+	if err != nil {
+		t.Fatalf("parseReleaseSigningPublicKey: %v", err)
+	}
+	if pub.Curve != elliptic.P256() {
+		t.Errorf("public key curve = %v, want P-256", pub.Curve)
+	}
+}
+
+// generateTestSigningKey returns a throwaway ECDSA P-256 key for signing
+// test fixtures — never the embedded production key, which has no private
+// half checked into this repo.
+func generateTestSigningKey(t *testing.T) *ecdsa.PrivateKey {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating test signing key: %v", err)
+	}
+	return key
+}
+
+func TestVerifySignature(t *testing.T) {
+	key := generateTestSigningKey(t)
+	data := []byte("theia release checksums fixture")
+
+	digest := sha256.Sum256(data)
+	sig, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
+	if err != nil {
+		t.Fatalf("signing fixture: %v", err)
+	}
+
+	if err := verifySignature(&key.PublicKey, data, sig); err != nil {
+		t.Errorf("verifySignature with a valid signature: %v", err)
+	}
+
+	if err := verifySignature(&key.PublicKey, []byte("tampered data"), sig); err == nil {
+		t.Error("expected an error when the signed data doesn't match")
+	}
+
+	otherKey := generateTestSigningKey(t)
+	if err := verifySignature(&otherKey.PublicKey, data, sig); err == nil {
+		t.Error("expected an error when the signature was made by a different key")
+	}
+
+	if err := verifySignature(&key.PublicKey, data, []byte("not a signature")); err == nil {
+		t.Error("expected an error for a malformed signature")
+	}
+}
+
+func TestVerifyChecksumsSignatureRejectsForgedSignature(t *testing.T) {
+	// verifyChecksumsSignature always checks against the embedded production
+	// public key, so a signature not produced by its (deliberately absent)
+	// private key must be rejected regardless of content.
+	if err := verifyChecksumsSignature([]byte("sha256sums.txt contents"), []byte("forged signature bytes")); err == nil {
+		t.Error("expected an error for a signature not made by the production key")
+	}
+}
+
+func TestVerifyReleaseSignatureMissingAssetWarnsAndContinues(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request to %s — no signature asset should mean no download", r.URL.Path)
+	})
+
+	rel := Release{TagName: "v1.0.0"} // no sha256sums.txt.sig asset
+	buf := &bytes.Buffer{}
+
+	if err := verifyReleaseSignature(context.Background(), buf, rel, []byte("checksums"), t.TempDir()); err != nil {
+		t.Fatalf("verifyReleaseSignature: %v", err)
+	}
+	if !strings.Contains(buf.String(), "has no signature") {
+		t.Errorf("output = %q, want a no-signature warning", buf.String())
+	}
+}
+
+func TestVerifyReleaseSignaturePresentButInvalidFails(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not a real signature"))
+	})
+
+	rel := Release{
+		TagName: "v1.0.0",
+		Assets:  []Asset{{Name: "sha256sums.txt.sig", DownloadURL: "https://github.com/x/sig"}},
+	}
+	buf := &bytes.Buffer{}
+
+	err := verifyReleaseSignature(context.Background(), buf, rel, []byte("checksums"), t.TempDir())
+	if err == nil {
+		t.Fatal("expected an error for an invalid signature")
+	}
+	if !strings.Contains(err.Error(), "signature verification failed") {
+		t.Errorf("error = %v, want a signature-verification-failed message", err)
+	}
+}
+
+// TestRunUpdateNoSignatureAssetStillUpdates confirms the current soft-fail
+// policy (requireReleaseSignature == false): a release published before
+// signing existed has no sha256sums.txt.sig, and the update proceeds with a
+// warning rather than being refused.
+func TestRunUpdateNoSignatureAssetStillUpdates(t *testing.T) {
+	arch := runtime.GOARCH
+	if arch != "amd64" && arch != "arm64" {
+		t.Skipf("unsupported test arch %q", arch)
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	assetName := "theia-linux-" + arch
+	binContent := []byte("signed-less binary\n")
+	sum := sha256.Sum256(binContent)
+	checksums := hex.EncodeToString(sum[:]) + "  " + assetName + "\n"
+
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[`+
+				`{"name":%q,"browser_download_url":"https://github.com/dl/%s"},`+
+				`{"name":"sha256sums.txt","browser_download_url":"https://github.com/dl/sha256sums.txt"}]}`,
+				assetName, assetName)
+		case strings.HasSuffix(r.URL.Path, "sha256sums.txt"):
+			_, _ = w.Write([]byte(checksums))
+		case strings.HasSuffix(r.URL.Path, assetName):
+			_, _ = w.Write(binContent)
+		default:
+			t.Errorf("unexpected request path %s", r.URL.Path)
+		}
+	})
+
+	exePath := filepath.Join(t.TempDir(), "theia")
+	if err := os.WriteFile(exePath, []byte("old theia"), 0o755); err != nil {
+		t.Fatalf("seeding exe: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	if err := runUpdate(context.Background(), buf, exePath, "v0.1.0", false); err != nil {
+		t.Fatalf("runUpdate: %v", err)
+	}
+	if !strings.Contains(buf.String(), "has no signature") {
+		t.Errorf("output = %q, want a no-signature warning", buf.String())
+	}
+}
+
+// TestRunUpdateInvalidSignatureBlocksInstall confirms a release that
+// published a signature but fails to verify is always refused, even under
+// the soft-fail policy — that policy only excuses a signature's absence,
+// never its invalidity. The original binary must be left untouched.
+func TestRunUpdateInvalidSignatureBlocksInstall(t *testing.T) {
+	arch := runtime.GOARCH
+	if arch != "amd64" && arch != "arm64" {
+		t.Skipf("unsupported test arch %q", arch)
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	assetName := "theia-linux-" + arch
+	binContent := []byte("malicious binary\n")
+	sum := sha256.Sum256(binContent)
+	checksums := hex.EncodeToString(sum[:]) + "  " + assetName + "\n"
+
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[`+
+				`{"name":%q,"browser_download_url":"https://github.com/dl/%s"},`+
+				`{"name":"sha256sums.txt","browser_download_url":"https://github.com/dl/sha256sums.txt"},`+
+				`{"name":"sha256sums.txt.sig","browser_download_url":"https://github.com/dl/sha256sums.txt.sig"}]}`,
+				assetName, assetName)
+		case strings.HasSuffix(r.URL.Path, "sha256sums.txt.sig"):
+			_, _ = w.Write([]byte("forged, does not match the embedded public key"))
+		case strings.HasSuffix(r.URL.Path, "sha256sums.txt"):
+			_, _ = w.Write([]byte(checksums))
+		case strings.HasSuffix(r.URL.Path, assetName):
+			_, _ = w.Write(binContent)
+		default:
+			t.Errorf("unexpected request path %s", r.URL.Path)
+		}
+	})
+
+	exePath := filepath.Join(t.TempDir(), "theia")
+	original := []byte("old theia")
+	if err := os.WriteFile(exePath, original, 0o755); err != nil {
+		t.Fatalf("seeding exe: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	err := runUpdate(context.Background(), buf, exePath, "v0.1.0", false)
+	if err == nil {
+		t.Fatal("expected an error for an invalid release signature")
+	}
+	if !strings.Contains(err.Error(), "signature verification failed") {
+		t.Errorf("error = %v, want a signature-verification-failed message", err)
+	}
+
+	got, readErr := os.ReadFile(exePath)
+	if readErr != nil {
+		t.Fatalf("reading exe: %v", readErr)
+	}
+	if string(got) != string(original) {
+		t.Errorf("exe was replaced despite a failed signature check: got %q, want %q", got, original)
 	}
 }

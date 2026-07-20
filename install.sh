@@ -16,6 +16,15 @@ readonly BINARY_NAME="theia"
 readonly INSTALL_DIR="${THEIA_INSTALL_DIR:-/usr/local/bin}"
 readonly DATA_DIR="/var/lib/theia"
 
+# ECDSA P-256 public key (SubjectPublicKeyInfo, PEM) used to verify the
+# detached signature over each release's sha256sums.txt. Keep in sync with
+# releaseSigningPublicKeyPEM in cmd/update.go — the matching private key
+# lives only as the RELEASE_SIGNING_KEY secret in GitHub Actions.
+readonly RELEASE_SIGNING_PUBKEY='-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEt/3p0QWM1OmSi479p1VnjoYnHwd8
+m6uWoSmjYPISrBHakBRoUgetqiGy4EIYFVN8xMdLirTEYa3paXqeNKV1Ug==
+-----END PUBLIC KEY-----'
+
 AUTO_YES=false
 
 info() {
@@ -524,6 +533,68 @@ main() {
         fi
 
         success "Downloaded successfully"
+
+        step "Verifying checksum..."
+        local checksums_url="${GITHUB_URL}/${REPO}/releases/download/${version}/sha256sums.txt"
+        local tmp_checksums="${tmp_dir}/${BINARY_NAME}_sha256sums.txt"
+
+        if ! download_file "$checksums_url" "$tmp_checksums" "$download_tool"; then
+            error "Failed to download sha256sums.txt"
+            exit 1
+        fi
+
+        local binary_name="theia-linux-${arch}"
+        local expected_checksum
+        expected_checksum=$(grep "  ${binary_name}$" "$tmp_checksums" | awk '{print $1}')
+
+        if [ -z "$expected_checksum" ]; then
+            error "No checksum found for ${binary_name} in sha256sums.txt"
+            exit 1
+        fi
+
+        local actual_checksum
+        actual_checksum=$(sha256sum "$tmp_binary" | awk '{print $1}')
+
+        if [ "$expected_checksum" != "$actual_checksum" ]; then
+            error "Checksum mismatch — binary may be corrupted"
+            dim "  expected: $expected_checksum"
+            dim "  got:      $actual_checksum"
+            rm -f "$tmp_binary" "$tmp_checksums"
+            exit 1
+        fi
+
+        success "Checksum verified"
+
+        step "Verifying release signature..."
+        local sig_url="${GITHUB_URL}/${REPO}/releases/download/${version}/sha256sums.txt.sig"
+        local tmp_sig="${tmp_dir}/${BINARY_NAME}_sha256sums.txt.sig"
+
+        if download_file "$sig_url" "$tmp_sig" "$download_tool" && [ -s "$tmp_sig" ]; then
+            if ! command -v openssl &> /dev/null; then
+                error "sha256sums.txt.sig is present but openssl is not installed — cannot verify it"
+                dim "  Install openssl or use --local with a binary you've verified yourself"
+                rm -f "$tmp_binary" "$tmp_checksums" "$tmp_sig"
+                exit 1
+            fi
+
+            local tmp_pubkey="${tmp_dir}/release-signing-pubkey.pem"
+            printf '%s\n' "$RELEASE_SIGNING_PUBKEY" > "$tmp_pubkey"
+
+            if openssl dgst -sha256 -verify "$tmp_pubkey" -signature "$tmp_sig" "$tmp_checksums" &> /dev/null; then
+                success "Signature verified"
+            else
+                error "Signature verification failed — refusing to install (release may be tampered)"
+                rm -f "$tmp_binary" "$tmp_checksums" "$tmp_sig" "$tmp_pubkey"
+                exit 1
+            fi
+        else
+            # Soft-fail: releases published before signing was introduced have
+            # no sha256sums.txt.sig. Keep in sync with requireReleaseSignature
+            # in cmd/update.go — once that flips to true, this should too.
+            warn "Release has no sha256sums.txt.sig — checksum-only integrity (release predates signing)"
+        fi
+
+        rm -f "$tmp_checksums"
     fi
 
     # Stop running service before overwriting binary
