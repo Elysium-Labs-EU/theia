@@ -15,34 +15,30 @@ permissions:
   contents: write
 
 jobs:
+  # Re-runs the full make ci gate (test, lint, nilaway, coverage floor,
+  # go-crap change-risk gate) at release time rather than trusting main was
+  # never rebased/force-pushed since ci.yml last ran on it. Previously this
+  # job hand-copied only test+lint+nilaway, so a release could ship with a
+  # coverage regression or crap-gate violation that PR-time ci.yml would have
+  # caught, if main had drifted since the last PR merge.
   ci:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # go-crap-gate diffs changed functions against origin/main
 
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - name: Install dependencies
-        run: go mod download
+      - name: Install dev tools
+        run: make setup
 
-      - name: Run tests
-        run: go test ./cmd ./internal/... -race -count=2
-
-      - name: Install golangci-lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.11.0
-
-      - name: Run linters
-        run: golangci-lint run --timeout=5m
-
-      - name: Install nilaway
-        run: go install go.uber.org/nilaway/cmd/nilaway@latest
-
-      - name: Run nilcheck
-        run: nilaway ./...
+      - name: Run CI gate
+        run: make ci
 
   build:
     needs: ci
