@@ -5,6 +5,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE ?= $(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
 VERSION_PKG := github.com/Elysium-Labs-EU/theia/internal/buildinfo
+COVERAGE_THRESHOLD ?= 60
 LDFLAGS := -ldflags "-X '$(VERSION_PKG).Version=$(VERSION)' -X '$(VERSION_PKG).GitCommit=$(COMMIT)' -X '$(VERSION_PKG).BuildDate=$(BUILD_DATE)' -w -s"
 
 BINARY_NAME=theia
@@ -51,6 +52,13 @@ test-coverage: ## Get test coverage
 	go test -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out
 
+test-coverage-check: ## Fail if total coverage is below COVERAGE_THRESHOLD
+	@go test -coverprofile=coverage.out ./... -covermode=atomic -count=1 2>&1 | grep -v "^?" || true
+	@total=$$(go tool cover -func=coverage.out | awk '/^total:/{gsub(/%/,""); print $$3}'); \
+	echo "Total coverage: $${total}%"; \
+	awk -v total="$${total}" -v threshold="$(COVERAGE_THRESHOLD)" \
+		'BEGIN { if (total+0 < threshold+0) { print "Coverage " total "% below threshold " threshold "%"; exit 1 } }'
+
 lint: ## Run all linters
 	@echo "Running linters..."
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not found. Install: https://golangci-lint.run/welcome/install/"; exit 1; }
@@ -61,7 +69,7 @@ nilcheck: ## Static nil-pointer safety analysis (requires: go install go.uber.or
 	@command -v nilaway >/dev/null 2>&1 || { echo "nilaway not found. Run: make setup"; exit 1; }
 	nilaway ./...
 
-crap: ## Change-scoped CRAP gate (fails only on functions this change modified; requires: go install github.com/padiazg/go-crap@latest)
+crap: test-coverage-check ## Change-scoped CRAP gate (fails only on functions this change modified; requires: go install github.com/padiazg/go-crap@latest)
 	@echo "Running change-scoped go-crap CRAP gate..."
 	@command -v go-crap >/dev/null 2>&1 || { echo "go-crap not found. Run: make setup"; exit 1; }
 	bash scripts/go-crap-gate.sh .
