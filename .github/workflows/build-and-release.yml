@@ -159,6 +159,16 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Determine if prerelease
+        id: prerelease
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" =~ -[a-zA-Z] ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
@@ -168,7 +178,7 @@ jobs:
             release/theia-linux-arm64
             release/sha256sums.txt*
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
           generate_release_notes: true
           body: |
             ## Theia ${{ steps.version.outputs.version }}
