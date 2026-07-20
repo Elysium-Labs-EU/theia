@@ -45,8 +45,8 @@ const updateUserAgent = "theia-updater"
 // .github/workflows/build-and-release.yml to sign at release time — it is
 // never checked into this repo.
 const releaseSigningPublicKeyPEM = `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEt/3p0QWM1OmSi479p1VnjoYnHwd8
-m6uWoSmjYPISrBHakBRoUgetqiGy4EIYFVN8xMdLirTEYa3paXqeNKV1Ug==
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEld+PbyOPIKYMhIHdUBTa0SsMVTNG
+ueCARCU4EJIMNNKwWAh9FgC7wAZbrbBRfoPpv0EH4d3m9Sc2obONMw8aGw==
 -----END PUBLIC KEY-----
 `
 

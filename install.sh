@@ -21,8 +21,8 @@ readonly DATA_DIR="/var/lib/theia"
 # releaseSigningPublicKeyPEM in cmd/update.go — the matching private key
 # lives only as the RELEASE_SIGNING_KEY secret in GitHub Actions.
 readonly RELEASE_SIGNING_PUBKEY='-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEt/3p0QWM1OmSi479p1VnjoYnHwd8
-m6uWoSmjYPISrBHakBRoUgetqiGy4EIYFVN8xMdLirTEYa3paXqeNKV1Ug==
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEld+PbyOPIKYMhIHdUBTa0SsMVTNG
+ueCARCU4EJIMNNKwWAh9FgC7wAZbrbBRfoPpv0EH4d3m9Sc2obONMw8aGw==
 -----END PUBLIC KEY-----'
 
 AUTO_YES=false
