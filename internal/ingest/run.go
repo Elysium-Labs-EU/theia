@@ -44,7 +44,7 @@ func Run(ctx context.Context, dbPath string, logPath string) error {
 
 	go handleShutdownSignal(sigChan, pageViews)
 
-	tailArgs := []string{"-f", logPath}
+	tailArgs := []string{"-F", logPath}
 	tailLog(ctx, tailArgs, pageViews)
 	return nil
 }
