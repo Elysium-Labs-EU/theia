@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // maxLogLineSize bounds how much of a single log line tailLog will buffer.
@@ -14,18 +15,19 @@ import (
 // keeps memory use bounded while staying generous enough for realistic traffic.
 const maxLogLineSize = 1 << 20 // 1 MiB
 
-func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) {
+func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) error {
 	tailLogCommand := exec.CommandContext(ctx, "tail", tailArgs...) //nolint:gosec // args are internal, not user input
+
 	readCloser, err := tailLogCommand.StdoutPipe()
 	if err != nil {
-		fmt.Printf("error occurred during setting up log reading, got: %v\n", err)
-		return
+		return fmt.Errorf("setting up log reading: %w", err)
 	}
 
-	err = tailLogCommand.Start()
-	if err != nil {
-		fmt.Printf("error occurred during starting log reading, got: %v\n", err)
-		return
+	var stderr bytes.Buffer
+	tailLogCommand.Stderr = &stderr
+
+	if err := tailLogCommand.Start(); err != nil {
+		return fmt.Errorf("starting log reading: %w", err)
 	}
 
 	scanner := bufio.NewScanner(readCloser)
@@ -43,10 +45,24 @@ func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) 
 		}
 		pageViews <- pageView
 	}
-	if scanErr := scanner.Err(); scanErr != nil {
-		fmt.Printf("error occurred during reading of the log, got: %v\n", scanErr)
+	scanErr := scanner.Err()
+
+	if waitErr := tailLogCommand.Wait(); waitErr != nil {
+		if ctx.Err() != nil {
+			// Caller-requested shutdown (e.g. SIGINT/SIGTERM) killed the tail
+			// child via exec.CommandContext; that's a clean stop, not a failure.
+			return nil
+		}
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("tail command failed: %w: %s", waitErr, msg)
+		}
+		return fmt.Errorf("tail command failed: %w", waitErr)
 	}
-	_ = tailLogCommand.Wait()
+	if scanErr != nil {
+		return fmt.Errorf("reading tail output: %w", scanErr)
+	}
+
+	return nil
 }
 
 // splitLinesSkippingOverlong is a bufio.SplitFunc equivalent to bufio.ScanLines
