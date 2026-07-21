@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
+	"sync"
 	"time"
 
 	"github.com/Elysium-Labs-EU/theia/database"
@@ -36,35 +34,48 @@ func Run(ctx context.Context, dbPath string, logPath string) error {
 
 	pageViews := make(chan PageView, 100)
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// Draining pageViews and running a cleanup already in flight at shutdown
+	// must not be aborted by the same cancellation that signals shutdown, so
+	// DB writes use a context that keeps values but drops the cancel signal.
+	dbCtx := context.WithoutCancel(ctx)
 
-	go processPageviews(ctx, db, pageViews)
-	go runPeriodicCleanup(ctx, db, time.NewTicker(12*time.Hour), sigChan)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		processPageviews(dbCtx, db, pageViews)
+	}()
+	go func() {
+		defer wg.Done()
+		runPeriodicCleanup(ctx, dbCtx, db, time.NewTicker(12*time.Hour))
+	}()
 
-	go handleShutdownSignal(sigChan, pageViews)
-
+	// tailLog blocks until ctx is canceled (e.g. by a SIGINT/SIGTERM wired
+	// in by cmd.Execute), at which point exec.CommandContext kills the
+	// "tail -f" child and unblocks the scanner loop below.
 	tailArgs := []string{"-f", logPath}
 	tailLog(ctx, tailArgs, pageViews)
+
+	log.Println("Shutdown signal received, stopping...")
+	close(pageViews)
+	wg.Wait()
+
 	return nil
 }
 
-func handleShutdownSignal(sigChan chan os.Signal, pageViews chan PageView) {
-	<-sigChan
-	log.Println("Shutdown signal received, stopping...")
-	close(pageViews)
-}
-
-func runPeriodicCleanup(ctx context.Context, db *sql.DB, ticker *time.Ticker, shutdown <-chan os.Signal) {
-	performAllCleanups(ctx, db)
+// runPeriodicCleanup runs performAllCleanups on a timer until shutdown is
+// canceled. dbCtx (not shutdown) is used for the cleanup queries themselves,
+// so a cleanup already running when shutdown fires can still complete.
+func runPeriodicCleanup(shutdown context.Context, dbCtx context.Context, db *sql.DB, ticker *time.Ticker) {
+	performAllCleanups(dbCtx, db)
 
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			performAllCleanups(ctx, db)
-		case <-shutdown:
+			performAllCleanups(dbCtx, db)
+		case <-shutdown.Done():
 			log.Println("Cleanup goroutine shutting down...")
 			return
 		}

@@ -2,8 +2,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/Elysium-Labs-EU/theia/internal/buildinfo"
 	"github.com/spf13/cobra"
@@ -30,11 +33,17 @@ No client-side JavaScript required, making it resistant to ad-blockers.`, buildi
 }
 
 // Execute is the entry point for the theia CLI.
-// It builds the root command tree and exits with code 1 on error.
+// It builds the root command tree, wires a context that's canceled on
+// SIGINT/SIGTERM so long-running commands (e.g. daemon) can shut down
+// cleanly, and exits with code 1 on error.
 func Execute() {
 	rootCmd := newRootCmd()
 
-	if err := rootCmd.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+
+	err := rootCmd.ExecuteContext(ctx)
+	stop()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
