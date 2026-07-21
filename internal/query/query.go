@@ -105,7 +105,7 @@ func GetTopPaths(ctx context.Context, db *sql.DB, since time.Time, host string, 
 	}
 	defer rows.Close() //nolint:errcheck // close error in defer is not actionable
 
-	var results []PathStat
+	results := []PathStat{}
 	for rows.Next() {
 		var p PathStat
 		if err := rows.Scan(&p.Path, &p.Host, &p.Pageviews); err != nil {
@@ -137,7 +137,7 @@ func GetStatusCodes(ctx context.Context, db *sql.DB, since time.Time, host strin
 	}
 	defer rows.Close() //nolint:errcheck // close error in defer is not actionable
 
-	var results []StatusStat
+	results := []StatusStat{}
 	for rows.Next() {
 		var s StatusStat
 		if err := rows.Scan(&s.StatusCode, &s.Count); err != nil {
@@ -171,7 +171,7 @@ func GetTopReferrers(ctx context.Context, db *sql.DB, since time.Time, host stri
 	}
 	defer rows.Close() //nolint:errcheck // close error in defer is not actionable
 
-	var results []ReferrerStat
+	results := []ReferrerStat{}
 	for rows.Next() {
 		var r ReferrerStat
 		if err := rows.Scan(&r.Referrer, &r.Count); err != nil {

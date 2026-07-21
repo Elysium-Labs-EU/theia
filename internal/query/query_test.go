@@ -243,6 +243,63 @@ func TestGetStatusCodes(t *testing.T) {
 	}
 }
 
+func TestGetTopPathsEmptyReturnsEmptySlice(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	since := time.Now().AddDate(0, 0, -7)
+
+	paths, err := query.GetTopPaths(ctx, db, since, "", 10)
+	if err != nil {
+		t.Fatalf("GetTopPaths on empty db: %v", err)
+	}
+	if paths == nil {
+		t.Error("expected non-nil empty slice, got nil")
+	}
+	if len(paths) != 0 {
+		t.Errorf("expected 0 paths, got %d", len(paths))
+	}
+}
+
+func TestGetStatusCodesEmptyReturnsEmptySlice(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	since := time.Now().AddDate(0, 0, -7)
+
+	codes, err := query.GetStatusCodes(ctx, db, since, "")
+	if err != nil {
+		t.Fatalf("GetStatusCodes on empty db: %v", err)
+	}
+	if codes == nil {
+		t.Error("expected non-nil empty slice, got nil")
+	}
+	if len(codes) != 0 {
+		t.Errorf("expected 0 status codes, got %d", len(codes))
+	}
+}
+
+func TestGetTopReferrersEmptyReturnsEmptySlice(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	since := time.Now().AddDate(0, 0, -7)
+
+	refs, err := query.GetTopReferrers(ctx, db, since, "", 10)
+	if err != nil {
+		t.Fatalf("GetTopReferrers on empty db: %v", err)
+	}
+	if refs == nil {
+		t.Error("expected non-nil empty slice, got nil")
+	}
+	if len(refs) != 0 {
+		t.Errorf("expected 0 referrers, got %d", len(refs))
+	}
+}
+
 func TestGetTopReferrers(t *testing.T) {
 	db := setupTestDB(t)
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
