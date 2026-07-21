@@ -88,6 +88,11 @@ func newUninstallCmd() *cobra.Command {
 By default the data directory (` + theiaDataDir + `, holding theia.db) is left
 in place and a manual cleanup hint is printed. Pass --purge to remove it too.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Flags parsed fine to reach here, so any error from this point
+			// on is a runtime failure, not a usage mistake — don't dump the
+			// flags/usage block for it.
+			cmd.SilenceUsage = true
+
 			exePath, err := currentBinaryPath()
 			if err != nil {
 				return err

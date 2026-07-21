@@ -609,6 +609,11 @@ func newUpdateCmd() *cobra.Command {
 		Short:   "Download and install the latest theia release",
 		Example: "  theia system update        # check and apply latest stable release\n  theia system update --pre  # include pre-releases",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Flags parsed fine to reach here, so any error from this point
+			// on is a runtime failure, not a usage mistake — don't dump the
+			// flags/usage block for it.
+			cmd.SilenceUsage = true
+
 			exePath, err := currentBinaryPath()
 			if err != nil {
 				return err

@@ -32,6 +32,11 @@ Example:
   theia stats --days 30 --host example.com --format json`,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Flags parsed fine to reach here, so any error from this point
+			// on is a runtime failure, not a usage mistake — don't dump the
+			// flags/usage block for it.
+			cmd.SilenceUsage = true
+
 			dbPath, err := cmd.Flags().GetString("db-path")
 			if err != nil {
 				return fmt.Errorf("parsing db-path flag: %w", err)
