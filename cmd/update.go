@@ -67,8 +67,9 @@ type Asset struct {
 
 // Release is the subset of GitHub's release API response theia needs.
 type Release struct {
-	TagName string  `json:"tag_name"`
-	Assets  []Asset `json:"assets"`
+	TagName    string  `json:"tag_name"`
+	Assets     []Asset `json:"assets"`
+	Prerelease bool    `json:"prerelease"`
 }
 
 // AssetFor returns the release asset for theia on linux/arch.
@@ -105,44 +106,32 @@ func (r Release) SignatureAsset() (Asset, bool) {
 }
 
 // fetchLatestRelease fetches the latest theia release from GitHub.
-// GitHub's "latest" endpoint only ever returns stable (non-prerelease,
-// non-draft) releases, so when includePre is true this instead lists all
-// releases (newest first) and returns the first one — the only way to reach
-// a release while every published version is still a pre-release.
+//
+// The plain path hits /releases/latest, which GitHub guarantees excludes
+// prereleases and drafts. If every published release is a prerelease, that
+// endpoint 404s, so this falls back to picking the best release out of the
+// full /releases list.
+//
+// The includePre path always lists the full release history and picks the
+// highest-semver release via pickBestRelease — GitHub's list is not
+// guaranteed to already be sorted by version, so the first entry cannot be
+// trusted as the latest.
 func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
-	reqURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", theiaRepo)
 	if includePre {
-		reqURL = fmt.Sprintf("https://api.github.com/repos/%s/releases", theiaRepo)
+		return fetchAndPickRelease(ctx)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return Release{}, fmt.Errorf("building release request: %w", err)
-	}
-	req.Header.Set("User-Agent", updateUserAgent)
-	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := httpClient.Do(req) // #nosec G704 -- URL is constructed from a hardcoded GitHub API base, not user input
+	resp, err := doReleaseRequest(ctx, fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", theiaRepo))
 	if err != nil {
-		return Release{}, fmt.Errorf("fetching latest release: %w", err)
-	}
-	if resp == nil {
-		return Release{}, fmt.Errorf("fetching latest release: nil response")
+		return Release{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return fetchAndPickRelease(ctx)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return Release{}, fmt.Errorf("fetching latest release: unexpected status %s", resp.Status)
-	}
-
-	if includePre {
-		var releases []Release
-		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-			return Release{}, fmt.Errorf("decoding release response: %w", err)
-		}
-		if len(releases) == 0 {
-			return Release{}, fmt.Errorf("no releases found")
-		}
-		return releases[0], nil
 	}
 
 	var rel Release
@@ -150,6 +139,83 @@ func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
 		return Release{}, fmt.Errorf("decoding release response: %w", err)
 	}
 	return rel, nil
+}
+
+// doReleaseRequest issues a GET against reqURL with the headers GitHub's
+// release API requires. The caller owns closing the returned response body.
+func doReleaseRequest(ctx context.Context, reqURL string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building release request: %w", err)
+	}
+	req.Header.Set("User-Agent", updateUserAgent)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := httpClient.Do(req) // #nosec G704 -- URL is constructed from a hardcoded GitHub API base, not user input
+	if err != nil {
+		return nil, fmt.Errorf("fetching latest release: %w", err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("fetching latest release: nil response")
+	}
+	return resp, nil
+}
+
+// fetchAndPickRelease lists every theia release and picks the best one by
+// semver via pickBestRelease.
+func fetchAndPickRelease(ctx context.Context) (Release, error) {
+	resp, err := doReleaseRequest(ctx, fmt.Sprintf("https://api.github.com/repos/%s/releases", theiaRepo))
+	if err != nil {
+		return Release{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return Release{}, fmt.Errorf("fetching latest release: unexpected status %s", resp.Status)
+	}
+
+	var releases []Release
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return Release{}, fmt.Errorf("decoding release response: %w", err)
+	}
+	if len(releases) == 0 {
+		return Release{}, fmt.Errorf("no releases found")
+	}
+	return pickBestRelease(releases)
+}
+
+// pickBestRelease selects the highest-semver stable release from releases,
+// falling back to the highest-semver prerelease only if no stable release
+// is present. Entries with a non-semver tag are ignored. Pure — no I/O.
+func pickBestRelease(releases []Release) (Release, error) {
+	var bestStable, bestPre Release
+	haveStable, havePre := false, false
+
+	for _, r := range releases {
+		tag := normalizeSemver(r.TagName)
+		if !semver.IsValid(tag) {
+			continue
+		}
+		if r.Prerelease {
+			if !havePre || semver.Compare(tag, normalizeSemver(bestPre.TagName)) > 0 {
+				bestPre = r
+				havePre = true
+			}
+			continue
+		}
+		if !haveStable || semver.Compare(tag, normalizeSemver(bestStable.TagName)) > 0 {
+			bestStable = r
+			haveStable = true
+		}
+	}
+
+	if haveStable {
+		return bestStable, nil
+	}
+	if havePre {
+		return bestPre, nil
+	}
+	return Release{}, fmt.Errorf("no releases with a valid semver tag found")
 }
 
 // downloadFile fetches downloadURL to destPath. It refuses anything but a
