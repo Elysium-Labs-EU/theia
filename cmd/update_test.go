@@ -113,6 +113,100 @@ func TestFetchLatestReleaseIncludePreEmptyList(t *testing.T) {
 	}
 }
 
+// TestFetchLatestReleaseIncludePreOutOfOrderList asserts includePre picks
+// the highest semver tag rather than trusting GitHub's list order — GitHub
+// has been observed to return a freshly created release out of position
+// (see theia issue #36 / argus#74).
+func TestFetchLatestReleaseIncludePreOutOfOrderList(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"tag_name": "v0.1.0", "prerelease": false, "assets": []},
+			{"tag_name": "v0.3.0", "prerelease": false, "assets": []},
+			{"tag_name": "v0.2.0", "prerelease": false, "assets": []}
+		]`))
+	})
+
+	rel, err := fetchLatestRelease(context.Background(), true)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v0.3.0" {
+		t.Errorf("TagName = %q, want the highest-semver entry %q even though it's not first in the list", rel.TagName, "v0.3.0")
+	}
+}
+
+// TestFetchLatestReleaseIncludePreAllPrerelease asserts includePre falls
+// back to the highest-semver prerelease when no stable release exists.
+func TestFetchLatestReleaseIncludePreAllPrerelease(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"tag_name": "v0.2.0-rc.1", "prerelease": true, "assets": []},
+			{"tag_name": "v0.3.0-rc.1", "prerelease": true, "assets": []}
+		]`))
+	})
+
+	rel, err := fetchLatestRelease(context.Background(), true)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v0.3.0-rc.1" {
+		t.Errorf("TagName = %q, want the highest-semver prerelease %q", rel.TagName, "v0.3.0-rc.1")
+	}
+}
+
+// TestFetchLatestReleaseIncludePrePrefersStableOverNewerPrerelease asserts
+// a stable release always wins over a prerelease, even one with a higher
+// tag, since pickBestRelease only falls back to prereleases when no stable
+// release exists.
+func TestFetchLatestReleaseIncludePrePrefersStableOverNewerPrerelease(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"tag_name": "v0.4.0-rc.1", "prerelease": true, "assets": []},
+			{"tag_name": "v0.3.0", "prerelease": false, "assets": []}
+		]`))
+	})
+
+	rel, err := fetchLatestRelease(context.Background(), true)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v0.3.0" {
+		t.Errorf("TagName = %q, want the stable release %q even though a newer prerelease exists", rel.TagName, "v0.3.0")
+	}
+}
+
+// TestFetchLatestReleasePlainPathFallsBackOn404 asserts the plain
+// (non-includePre) path falls back to the full /releases list when
+// /releases/latest 404s — the case where every published release is a
+// prerelease, which GitHub's "latest" endpoint always excludes.
+func TestFetchLatestReleasePlainPathFallsBackOn404(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			w.WriteHeader(http.StatusNotFound)
+		case strings.HasSuffix(r.URL.Path, "/releases"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+				{"tag_name": "v0.2.0-rc.1", "prerelease": true, "assets": []},
+				{"tag_name": "v0.3.0-rc.2", "prerelease": true, "assets": []}
+			]`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	})
+
+	rel, err := fetchLatestRelease(context.Background(), false)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v0.3.0-rc.2" {
+		t.Errorf("TagName = %q, want the highest-semver prerelease %q from the fallback list", rel.TagName, "v0.3.0-rc.2")
+	}
+}
+
 func TestFetchLatestReleaseIncludePreBadJSON(t *testing.T) {
 	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("not json"))
