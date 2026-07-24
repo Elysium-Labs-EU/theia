@@ -247,6 +247,40 @@ func TestStatsCmd_JSONFormat(t *testing.T) {
 	}
 }
 
+func TestStatsCmd_JSONFormat_EmptyDB(t *testing.T) {
+	db, dbPath := setupCmdTestDB(t)
+	database.Close(db) //nolint:errcheck // close before command reopens the same file
+
+	cmd := newStatsCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--db-path", dbPath, "--format", "json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\noutput: %s", err, buf.String())
+	}
+
+	out := buf.String()
+	if strings.Contains(out, "null") {
+		t.Errorf("expected no null fields in JSON output for empty db, got: %s", out)
+	}
+
+	var report statsReport
+	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+		t.Fatalf("unmarshal JSON: %v\noutput: %s", err, out)
+	}
+	if report.TopPaths == nil {
+		t.Error("expected top_paths to unmarshal as [], not null")
+	}
+	if report.StatusCodes == nil {
+		t.Error("expected status_codes to unmarshal as [], not null")
+	}
+	if report.TopReferrers == nil {
+		t.Error("expected top_referrers to unmarshal as [], not null")
+	}
+}
+
 func TestStatsCmd_InvalidDB(t *testing.T) {
 	cmd := newStatsCmd()
 	cmd.SetOut(&bytes.Buffer{})
