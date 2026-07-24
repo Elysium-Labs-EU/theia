@@ -4,9 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 )
 
 func Open(ctx context.Context, dbPath string) (*sql.DB, error) {
+	if err := checkParentDir(dbPath); err != nil {
+		return nil, fmt.Errorf("could not connect to database: %w", err)
+	}
+
 	// WAL lets readers and writers work concurrently instead of blocking on
 	// SQLite's default rollback-journal exclusive lock; busy_timeout makes a
 	// writer that still loses that race retry for 5s instead of failing
@@ -26,6 +32,29 @@ func Open(ctx context.Context, dbPath string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// checkParentDir gives an actionable error before the driver's opaque
+// SQLITE_CANTOPEN message reaches the user (modernc.org/sqlite mislabels it
+// "out of memory (14)" for a missing directory — see issue #17).
+func checkParentDir(dbPath string) error {
+	dir := filepath.Dir(dbPath)
+	if dir == "." {
+		return nil
+	}
+
+	info, err := os.Stat(dir)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("parent directory %q does not exist", dir)
+	}
+	if err != nil {
+		return fmt.Errorf("checking parent directory %q: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("parent path %q is not a directory", dir)
+	}
+
+	return nil
 }
 
 func Close(db *sql.DB) error {
