@@ -23,6 +23,7 @@ To print the script to stdout instead (for manual setup or scripting), pass the 
   theia completion zsh
   theia completion fish`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
 			return runInteractiveCompletion(cmd, root)
 		},
 	}
@@ -186,6 +187,7 @@ Install system-wide (requires sudo):
 Install for current user (no sudo):
   theia completion bash > ~/.local/share/bash-completion/completions/theia`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
 			return root.GenBashCompletionV2(cmd.OutOrStdout(), true)
 		},
 	}
@@ -202,6 +204,7 @@ Install:
 
 Then reload: exec $SHELL`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
 			return root.GenZshCompletion(cmd.OutOrStdout())
 		},
 	}
@@ -216,6 +219,7 @@ func newCompletionFishCmd(root *cobra.Command) *cobra.Command {
 Install:
   theia completion fish > ~/.config/fish/completions/theia.fish`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
 			return root.GenFishCompletion(cmd.OutOrStdout(), true)
 		},
 	}

@@ -18,6 +18,12 @@ func newRootCmd() *cobra.Command {
 theia tracks page views by parsing nginx access logs.
 No client-side JavaScript required, making it resistant to ad-blockers.`, buildinfo.GetVersionOnly()),
 		Version: buildinfo.Get(),
+
+		// SilenceErrors stops cobra from printing its own "Error: ..." line;
+		// Execute (below) is the single place that prints a command's error,
+		// so subcommands don't need to repeat this themselves — cobra checks
+		// cmd.Root().SilenceErrors as a fallback for the whole tree.
+		SilenceErrors: true,
 	}
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
