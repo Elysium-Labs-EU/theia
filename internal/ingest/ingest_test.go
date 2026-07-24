@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -241,6 +242,49 @@ func TestRunDifferentDaysInDistantPast(t *testing.T) {
 	assertAllStatusCodesAre200(t, db)
 	assertAllReferrerCountsAreOne(t, db)
 	runPeriodicCleanupAndAssertCounts(t, db, cleanupCounts{hourlyStats: 2, hourlyStatusCodes: 2, hourlyReferrers: 2, visitorDays: 2})
+}
+
+// TestTailLogSkipsOverlongLineAndContinues reproduces issue #10: a single log
+// line larger than bufio's old 64KiB default made tailLog stop ingesting
+// forever with no error. A too-long line (e.g. from a long URL, Referer, or
+// User-Agent header) must be skipped, and ingestion of subsequent lines must
+// continue.
+func TestTailLogSkipsOverlongLineAndContinues(t *testing.T) {
+	overlongUserAgent := strings.Repeat("A", maxLogLineSize+1000)
+	testLogLines := []string{
+		`192.168.1.1 - - [24/Dec/2024:10:30:45 +0000] "GET /before HTTP/1.1" 200 100 "-" "Mozilla/5.0" "example.com"`,
+		fmt.Sprintf(`192.168.1.2 - - [24/Dec/2024:10:30:46 +0000] "GET /over HTTP/1.1" 200 100 "-" "%s" "example.com"`, overlongUserAgent),
+		`192.168.1.3 - - [24/Dec/2024:10:30:47 +0000] "GET /after HTTP/1.1" 200 100 "-" "Mozilla/5.0" "example.com"`,
+	}
+	db, tempDir := setupTestDB(t)
+	t.Cleanup(func() {
+		_ = database.Close(db)
+	})
+
+	logPath := filepath.Join(tempDir, "access.log")
+	createTestLogFile(t, logPath, testLogLines)
+
+	pageViews := make(chan PageView, 100)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
+
+	tailArgs := []string{"-n", "+1", logPath}
+	tailLog(t.Context(), tailArgs, pageViews)
+	close(pageViews)
+	wg.Wait()
+
+	hourlyStats := getHourlyStats(t, db)
+	const wantEntries = 2 // /before and /after; /over was skipped for exceeding maxLogLineSize
+	if len(hourlyStats) != wantEntries {
+		t.Fatalf("Expected %d hourly stat entries (oversized line skipped), got %d instead", wantEntries, len(hourlyStats))
+	}
+	for _, stat := range hourlyStats {
+		if stat.Path != "/before" && stat.Path != "/after" {
+			t.Errorf("Unexpected path ingested: %q; the oversized /over line should have been skipped", stat.Path)
+		}
+	}
 }
 
 func newTestDB(ctx context.Context, dbPath string) (*sql.DB, error) {
