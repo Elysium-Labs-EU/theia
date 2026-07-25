@@ -34,7 +34,9 @@ func AcquireMigrationLock(dbPath string) (func() error, error) {
 		return nil, fmt.Errorf("opening migration lock %q: %w", lockPath, err)
 	}
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	// os.File.Fd() returns a kernel file descriptor that always fits in an int;
+	// the uintptr->int conversion is what syscall.Flock requires.
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil { //nolint:gosec // G115: fd fits in int
 		closeErr := f.Close()
 		if closeErr != nil {
 			return nil, fmt.Errorf("acquiring migration lock %q: %w (and closing it: %w)", lockPath, err, closeErr)
