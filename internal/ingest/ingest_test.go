@@ -273,7 +273,9 @@ func TestTailLogSkipsOverlongLineAndContinues(t *testing.T) {
 	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
 
 	tailArgs := []string{"-n", "+1", logPath}
-	tailLog(t.Context(), tailArgs, pageViews)
+	if err := tailLog(t.Context(), tailArgs, pageViews); err != nil {
+		t.Fatalf("tailLog: %v", err)
+	}
 	close(pageViews)
 	wg.Wait()
 

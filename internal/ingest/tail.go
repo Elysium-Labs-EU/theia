@@ -51,7 +51,7 @@ func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) 
 		if ctx.Err() != nil {
 			// Caller-requested shutdown (e.g. SIGINT/SIGTERM) killed the tail
 			// child via exec.CommandContext; that's a clean stop, not a failure.
-			return nil
+			return nil //nolint:nilerr // waitErr is the expected kill signal from our own cancellation, not a real failure
 		}
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return fmt.Errorf("tail command failed: %w: %s", waitErr, msg)
