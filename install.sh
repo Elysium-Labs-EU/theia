@@ -1,4 +1,26 @@
-#!/bin/bash
+#!/bin/sh
+# The installer body below is bash (it uses bash arrays, [[ ]] and other
+# bashisms), but the shebang is #!/bin/sh on purpose. Stock Alpine ships only
+# BusyBox ash and no bash, so a #!/bin/bash shebang there fails with a raw
+# "bash: not found" / "syntax error" that reads like a corrupt download. This
+# POSIX preamble runs under any /bin/sh: it re-execs into bash when bash is
+# present, and otherwise prints an actionable message telling the user how to
+# install it. It must stay strictly POSIX and sit above every bashism (arrays,
+# [[ ]], `set -o pipefail`) so ash never has to parse those before re-exec.
+if [ -z "${BASH_VERSION:-}" ]; then
+    if command -v bash >/dev/null 2>&1; then
+        exec bash "$0" "$@"
+    fi
+    echo "error: theia's installer requires bash, but bash was not found." >&2
+    echo "" >&2
+    echo "Install bash, then re-run this script:" >&2
+    echo "  Alpine:        apk add bash" >&2
+    echo "  Debian/Ubuntu: apt-get install bash" >&2
+    echo "  RHEL/CentOS:   yum install bash" >&2
+    echo "  Arch:          pacman -S bash" >&2
+    exit 1
+fi
+
 set -euo pipefail
 
 readonly RED='\033[0;31m'
