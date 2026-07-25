@@ -16,6 +16,14 @@ var (
 	regexStandard = regexp.MustCompile(`^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) \S+" (\d+) (\d+) "([^"]*)" "([^"]*)"`)
 )
 
+// NormalizeHost canonicalizes a host value for storage and filtering.
+// HTTP Host matching is case-insensitive (RFC 7230 S 2.7.3), so casing
+// variants of the same hostname must map to one bucket. Lowercasing at
+// ingest and when filtering keeps aggregation from silently fragmenting.
+func NormalizeHost(host string) string {
+	return strings.ToLower(host)
+}
+
 func getDefaultHost() string {
 	if host := os.Getenv("THEIA_DEFAULT_HOST"); host != "" {
 		return host
@@ -57,6 +65,7 @@ func parseNginxLog(line string) (PageView, error) {
 	} else {
 		host = getDefaultHost()
 	}
+	host = NormalizeHost(host)
 
 	parsedTimestamp, err := time.Parse("02/Jan/2006:15:04:05 -0700", timestamp)
 	if err != nil {

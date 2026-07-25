@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Elysium-Labs-EU/theia/database"
+	"github.com/Elysium-Labs-EU/theia/internal/ingest"
 	"github.com/Elysium-Labs-EU/theia/internal/query"
 	"github.com/spf13/cobra"
 )
@@ -49,6 +50,9 @@ Example:
 			if err != nil {
 				return fmt.Errorf("parsing host flag: %w", err)
 			}
+			// Hosts are stored lowercased at ingest; normalize the filter
+			// too so --host Example.com matches the example.com bucket.
+			host = ingest.NormalizeHost(host)
 			format, err := cmd.Flags().GetString("format")
 			if err != nil {
 				return fmt.Errorf("parsing format flag: %w", err)
