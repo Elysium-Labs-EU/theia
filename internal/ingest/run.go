@@ -27,11 +27,23 @@ func Run(ctx context.Context, dbPath string, logPath string) error {
 	}
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
-	if migrationsErr := database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath); migrationsErr != nil {
+	// Serialize migrations across processes: two daemons started against the
+	// same db-path race on golang-migrate's dirty-state bookkeeping otherwise
+	// (issue #23). The loser blocks here until the winner finishes, then sees an
+	// already-migrated schema.
+	release, lockErr := database.AcquireMigrationLock(dbPath)
+	if lockErr != nil {
+		return fmt.Errorf("failed to acquire migration lock: %w", lockErr)
+	}
+
+	migrationsErr := database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath)
+	if migrationsErr != nil {
+		_ = release() // release error is not actionable on the failure path
 		return fmt.Errorf("failed to run migrations: %w", migrationsErr)
 	}
 
 	version, dirty, err := database.GetCurrentVersion(db, database.MigrationsFS, database.MigrationsPath)
+	_ = release() // release error is not actionable here
 	if err != nil {
 		log.Printf("Warning: Could not get schema version: %v", err)
 	} else {

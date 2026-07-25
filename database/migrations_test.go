@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Elysium-Labs-EU/theia/database"
@@ -81,6 +82,72 @@ func TestMigrations(t *testing.T) {
 		t.Fatalf("Expected version %d after second up migration, got version %d", expectedVersion, version)
 	}
 	t.Log("All migration tests passed!")
+}
+
+// TestConcurrentMigrationsSameDBPath reproduces the migration half of issue #23:
+// several theia processes starting against the same db-path each run migrations
+// at once. Without the cross-process migration lock, golang-migrate's dirty-state
+// bookkeeping races and one migrator aborts with "Dirty database version". With
+// AcquireMigrationLock serializing them, every migrator succeeds and the schema
+// ends up clean at the expected version.
+func TestConcurrentMigrationsSameDBPath(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "race.db")
+
+	const migrators = 8
+
+	var wg sync.WaitGroup
+	errs := make([]error, migrators)
+
+	for i := range migrators {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			db, err := database.Open(t.Context(), dbPath)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			defer database.Close(db) //nolint:errcheck // cleanup only
+
+			release, err := database.AcquireMigrationLock(dbPath)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			defer release() //nolint:errcheck // cleanup only
+
+			if err := database.RunMigrations(db, testMigrationsFS, "migrations"); err != nil {
+				errs[idx] = err
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("migrator %d failed racing on the same db-path: %v", i, err)
+		}
+	}
+
+	db, err := database.Open(t.Context(), dbPath)
+	if err != nil {
+		t.Fatalf("failed to reopen database: %v", err)
+	}
+	defer database.Close(db) //nolint:errcheck // cleanup only
+
+	expectedVersion := getExpectedVersion(t, "migrations")
+	version, dirty, err := database.GetCurrentVersion(db, testMigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("failed to get current version: %v", err)
+	}
+	if dirty {
+		t.Fatalf("database left dirty after concurrent migrations")
+	}
+	if version != expectedVersion {
+		t.Fatalf("expected version %d after concurrent migrations, got %d", expectedVersion, version)
+	}
 }
 
 func getExpectedVersion(t *testing.T, migrationsDir string) uint {

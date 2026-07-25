@@ -84,7 +84,15 @@ func runStats(cmd *cobra.Command, dbPath string, days int, host, format string, 
 	}
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
-	if err = database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath); err != nil {
+	// Guard against racing a running daemon's migrations on the same db-path
+	// (issue #23): serialize behind the shared migration lock.
+	release, lockErr := database.AcquireMigrationLock(dbPath)
+	if lockErr != nil {
+		return fmt.Errorf("acquiring migration lock: %w", lockErr)
+	}
+	err = database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath)
+	_ = release() // release error is not actionable here
+	if err != nil {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 
