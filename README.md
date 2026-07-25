@@ -126,6 +126,75 @@ Top Referrers
   https://example.com   420
 ```
 
+### Serving the stats API
+
+`theia serve` exposes the same data `theia stats` prints, over a bearer-authed HTTP/JSON
+(or CSV) API — for dashboards, Prometheus exporters, or any other adapter that wants
+filterable access instead of a fixed table. It's a separate command from `daemon` (see
+[Why a separate `serve` command](#why-a-separate-serve-command) below) and binds to
+`127.0.0.1` only; put it behind a reverse proxy to expose it beyond localhost.
+
+```bash
+# Token via a file (recommended — avoids the process list)
+theia serve --db-path /var/lib/theia/theia.db --token-file /etc/theia/api-token
+
+# Or via env var
+THEIA_API_TOKEN=secret theia serve --db-path /var/lib/theia/theia.db
+```
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--db-path` | `./theia.db` | Path to SQLite database |
+| `--addr` | `127.0.0.1:8081` | Address to bind to — must be `127.0.0.1` or `localhost` |
+| `--token` | (none) | Bearer token — avoid on shared machines, visible in the process list |
+| `--token-file` | (none) | Path to a file containing the bearer token |
+
+If neither `--token` nor `--token-file` is set, `serve` falls back to the `THEIA_API_TOKEN`
+env var; if none of the three are configured, it refuses to start.
+
+Endpoints (all require `Authorization: Bearer <token>`):
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/stats` | Time series, bucketed by `day` or `hour` |
+| `GET /api/v1/stats/paths` | Top paths |
+| `GET /api/v1/stats/referrers` | Top referrers |
+| `GET /api/v1/stats/status-codes` | Status code breakdown |
+
+Shared query params: `host` (filter, default all), `from`/`to` (`YYYY-MM-DD`, default last 7
+days), `format` (`json` or `csv`, default `json`). `/stats` additionally takes `group_by`
+(`day` or `hour`, default `day`); the breakdown endpoints additionally take `top` (default 10).
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:8081/api/v1/stats?host=example.com&from=2026-06-01&to=2026-07-14&group_by=day"
+
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:8081/api/v1/stats/paths?host=example.com&top=20&format=csv"
+```
+
+Example nginx vhost snippet to expose it beyond localhost, reusing the domain's existing cert:
+
+```nginx
+location /theia-api/ {
+    proxy_pass http://127.0.0.1:8081/api/v1/;
+    limit_req zone=theia_api burst=10 nodelay;
+}
+```
+
+#### Why a separate `serve` command
+
+`daemon` and `serve` are split into two commands rather than one process doing both, because
+they're different concerns with different failure domains: `daemon` is the write path (tail,
+parse, persist) and `serve` is the read path (query, authenticate, respond over HTTP). SQLite's
+WAL mode (already enabled via `database.Open`) is built for exactly this — concurrent readers
+and a writer without blocking each other — so running them as two systemd units has no downside
+and several upsides: a bug or restart in one doesn't take down the other, hosts that only want
+log ingestion never open a listening socket at all, and each can be deployed, restarted, or
+resource-limited independently.
+
 ### Shell tab completion
 
 ```bash
@@ -186,7 +255,7 @@ blocking at the nginx/fail2ban level.
 
 - Only tracks page views (no client-side events)
 - Data loss possible during crashes or restarts
-- No web dashboard - use `theia stats` or query SQLite directly
+- No web dashboard - use `theia stats`, `theia serve`'s HTTP API, or query SQLite directly
 
 ## License
 

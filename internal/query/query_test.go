@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -327,5 +328,198 @@ func TestGetTopReferrers(t *testing.T) {
 	}
 	if refs[0].Referrer != "https://google.com" {
 		t.Errorf("top referrer: got %q, want https://google.com", refs[0].Referrer)
+	}
+}
+
+func TestGetSeriesByDay(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	today := time.Now()
+	yesterday := today.AddDate(0, 0, -1)
+	outOfRange := today.AddDate(0, 0, -10)
+
+	insertHourlyStat(t, db, "/", "example.com", today, 5, 3, 1, false)
+	insertHourlyStat(t, db, "/", "example.com", yesterday, 2, 1, 0, false)
+	insertHourlyStat(t, db, "/", "example.com", outOfRange, 100, 50, 0, false)
+
+	from := today.AddDate(0, 0, -2)
+	series, err := query.GetSeries(ctx, db, from, today, "", "day")
+	if err != nil {
+		t.Fatalf("GetSeries: %v", err)
+	}
+
+	if len(series) != 2 {
+		t.Fatalf("expected 2 daily buckets, got %d: %+v", len(series), series)
+	}
+	if series[0].Date != yesterday.Format("2006-01-02") {
+		t.Errorf("first bucket date: got %q, want %q", series[0].Date, yesterday.Format("2006-01-02"))
+	}
+	if series[1].Date != today.Format("2006-01-02") {
+		t.Errorf("second bucket date: got %q, want %q", series[1].Date, today.Format("2006-01-02"))
+	}
+	if series[1].PageViews != 5 || series[1].UniqueVisitors != 3 || series[1].BotViews != 1 {
+		t.Errorf("today bucket: got %+v, want pv=5 uv=3 bv=1", series[1])
+	}
+	if series[0].PageViews != 2 || series[0].UniqueVisitors != 1 {
+		t.Errorf("yesterday bucket: got %+v, want pv=2 uv=1", series[0])
+	}
+}
+
+func TestGetSeriesByDay_HostFilter(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	now := time.Now()
+
+	insertHourlyStat(t, db, "/", "example.com", now, 5, 3, 0, false)
+	insertHourlyStat(t, db, "/", "other.com", now, 10, 7, 0, false)
+
+	series, err := query.GetSeries(ctx, db, now.AddDate(0, 0, -1), now, "example.com", "day")
+	if err != nil {
+		t.Fatalf("GetSeries: %v", err)
+	}
+	if len(series) != 1 || series[0].PageViews != 5 {
+		t.Fatalf("expected single bucket with pv=5, got %+v", series)
+	}
+}
+
+func TestGetSeriesByHour(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	now := time.Now()
+
+	insertHourlyStat(t, db, "/", "example.com", now, 5, 3, 1, false)
+
+	series, err := query.GetSeries(ctx, db, now.AddDate(0, 0, -1), now, "", "hour")
+	if err != nil {
+		t.Fatalf("GetSeries: %v", err)
+	}
+	if len(series) != 1 {
+		t.Fatalf("expected 1 hourly bucket, got %d: %+v", len(series), series)
+	}
+	if series[0].PageViews != 5 || series[0].BotViews != 1 {
+		t.Errorf("hourly bucket: got %+v, want pv=5 bv=1", series[0])
+	}
+	if series[0].UniqueVisitors != 0 {
+		t.Errorf("hourly buckets cannot report unique visitors, got %d, want 0", series[0].UniqueVisitors)
+	}
+	wantPrefix := now.Format("2006-01-02T")
+	if !strings.HasPrefix(series[0].Date, wantPrefix) {
+		t.Errorf("hourly bucket date: got %q, want prefix %q", series[0].Date, wantPrefix)
+	}
+}
+
+func TestGetSeries_InvalidGroupBy(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	now := time.Now()
+
+	if _, err := query.GetSeries(ctx, db, now.AddDate(0, 0, -1), now, "", "week"); err == nil {
+		t.Error("expected error for invalid group_by, got nil")
+	}
+}
+
+func TestGetTopPathsRange_ExcludesOutOfRange(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	now := time.Now()
+	outOfRange := now.AddDate(0, 0, -30)
+
+	insertHourlyStat(t, db, "/in-range", "example.com", now, 5, 3, 0, false)
+	insertHourlyStat(t, db, "/old", "example.com", outOfRange, 99, 1, 0, false)
+
+	paths, err := query.GetTopPathsRange(ctx, db, now.AddDate(0, 0, -7), now, "", 10)
+	if err != nil {
+		t.Fatalf("GetTopPathsRange: %v", err)
+	}
+	if len(paths) != 1 || paths[0].Path != "/in-range" {
+		t.Fatalf("expected only /in-range, got %+v", paths)
+	}
+}
+
+func TestGetStatusCodesRange_ExcludesOutOfRange(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	now := time.Now()
+	outOfRange := now.AddDate(0, 0, -30)
+
+	insertStatusCode(t, db, "/", "example.com", now, 200, 5)
+	insertStatusCode(t, db, "/", "example.com", outOfRange, 500, 1)
+
+	codes, err := query.GetStatusCodesRange(ctx, db, now.AddDate(0, 0, -7), now, "")
+	if err != nil {
+		t.Fatalf("GetStatusCodesRange: %v", err)
+	}
+	if len(codes) != 1 || codes[0].StatusCode != 200 {
+		t.Fatalf("expected only status 200, got %+v", codes)
+	}
+}
+
+func TestGetStatusCodesRange_HostFilter(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	now := time.Now()
+
+	insertStatusCode(t, db, "/", "example.com", now, 200, 5)
+	insertStatusCode(t, db, "/", "other.com", now, 500, 9)
+
+	codes, err := query.GetStatusCodesRange(ctx, db, now.AddDate(0, 0, -7), now, "other.com")
+	if err != nil {
+		t.Fatalf("GetStatusCodesRange: %v", err)
+	}
+	if len(codes) != 1 || codes[0].StatusCode != 500 || codes[0].Count != 9 {
+		t.Fatalf("expected only other.com's status 500, got %+v", codes)
+	}
+}
+
+func TestGetTopReferrersRange_ExcludesOutOfRange(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	now := time.Now()
+	outOfRange := now.AddDate(0, 0, -30)
+
+	insertReferrer(t, db, "/blog", "example.com", "https://google.com", now, 5)
+	insertReferrer(t, db, "/", "example.com", "https://old.com", outOfRange, 1)
+
+	refs, err := query.GetTopReferrersRange(ctx, db, now.AddDate(0, 0, -7), now, "", 10)
+	if err != nil {
+		t.Fatalf("GetTopReferrersRange: %v", err)
+	}
+	if len(refs) != 1 || refs[0].Referrer != "https://google.com" {
+		t.Fatalf("expected only google.com referrer, got %+v", refs)
+	}
+}
+
+func TestGetTopReferrersRange_HostFilter(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	now := time.Now()
+
+	insertReferrer(t, db, "/", "example.com", "https://google.com", now, 5)
+	insertReferrer(t, db, "/", "other.com", "https://bing.com", now, 9)
+
+	refs, err := query.GetTopReferrersRange(ctx, db, now.AddDate(0, 0, -7), now, "other.com", 10)
+	if err != nil {
+		t.Fatalf("GetTopReferrersRange: %v", err)
+	}
+	if len(refs) != 1 || refs[0].Referrer != "https://bing.com" || refs[0].Count != 9 {
+		t.Fatalf("expected only other.com's bing.com referrer, got %+v", refs)
 	}
 }
