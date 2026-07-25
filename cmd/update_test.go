@@ -643,6 +643,73 @@ func TestRunUpdateNoSignatureAssetStillUpdates(t *testing.T) {
 	}
 }
 
+// TestRunUpdateRefreshesInstalledCompletions confirms a successful update
+// (issue #27) refreshes an already-installed completion script by exec'ing
+// the newly installed binary, rather than leaving the stale pre-update
+// script in place.
+func TestRunUpdateRefreshesInstalledCompletions(t *testing.T) {
+	arch := runtime.GOARCH
+	if arch != "amd64" && arch != "arm64" {
+		t.Skipf("unsupported test arch %q", arch)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	zshPath, err := completionTargetPath("zsh")
+	if err != nil {
+		t.Fatalf("resolving zsh target path: %v", err)
+	}
+	if mkdirErr := os.MkdirAll(filepath.Dir(zshPath), 0o750); mkdirErr != nil {
+		t.Fatalf("preparing zsh completion dir: %v", mkdirErr)
+	}
+	if writeErr := os.WriteFile(zshPath, []byte("#compdef old\n"), 0o600); writeErr != nil {
+		t.Fatalf("seeding old zsh completion: %v", writeErr)
+	}
+
+	assetName := "theia-linux-" + arch
+	binContent := []byte("#!/bin/sh\necho \"#compdef new\"\n")
+	sum := sha256.Sum256(binContent)
+	checksums := hex.EncodeToString(sum[:]) + "  " + assetName + "\n"
+
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[`+
+				`{"name":%q,"browser_download_url":"https://github.com/dl/%s"},`+
+				`{"name":"sha256sums.txt","browser_download_url":"https://github.com/dl/sha256sums.txt"}]}`,
+				assetName, assetName)
+		case strings.HasSuffix(r.URL.Path, "sha256sums.txt"):
+			_, _ = w.Write([]byte(checksums))
+		case strings.HasSuffix(r.URL.Path, assetName):
+			_, _ = w.Write(binContent)
+		default:
+			t.Errorf("unexpected request path %s", r.URL.Path)
+		}
+	})
+
+	exePath := filepath.Join(t.TempDir(), "theia")
+	if seedErr := os.WriteFile(exePath, []byte("old theia"), 0o755); seedErr != nil {
+		t.Fatalf("seeding exe: %v", seedErr)
+	}
+
+	buf := &bytes.Buffer{}
+	if updateErr := runUpdate(context.Background(), buf, exePath, "v0.1.0", false); updateErr != nil {
+		t.Fatalf("runUpdate: %v", updateErr)
+	}
+
+	data, readErr := os.ReadFile(zshPath)
+	if readErr != nil {
+		t.Fatalf("reading zsh completion: %v", readErr)
+	}
+	if !strings.Contains(string(data), "#compdef new") {
+		t.Errorf("zsh completion = %q, want it refreshed by the newly installed binary", string(data))
+	}
+	if !strings.Contains(buf.String(), "refreshed zsh completion") {
+		t.Errorf("output = %q, want a refresh confirmation", buf.String())
+	}
+}
+
 // TestRunUpdateInvalidSignatureBlocksInstall confirms a release that
 // published a signature but fails to verify is always refused, even under
 // the soft-fail policy — that policy only excuses a signature's absence,

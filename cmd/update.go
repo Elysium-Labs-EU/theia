@@ -661,6 +661,8 @@ func installUpdate(ctx context.Context, out io.Writer, exePath, binTmp, currentV
 		return fmt.Errorf("installing new binary: %w", replaceErr)
 	}
 
+	refreshInstalledCompletions(ctx, out, exePath)
+
 	if wasRunning {
 		startService(ctx, out)
 	}
