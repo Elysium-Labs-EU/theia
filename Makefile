@@ -1,4 +1,4 @@
-.PHONY: help list dev build install test lint nilcheck crap leak-test clean docker-* test-docker-* release release-local fix setup
+.PHONY: help list dev build install test lint check-pubkey-sync nilcheck crap leak-test clean docker-* test-docker-* release release-local fix setup
 .DEFAULT_GOAL := help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -59,10 +59,13 @@ test-coverage-check: ## Fail if total coverage is below COVERAGE_THRESHOLD
 	awk -v total="$${total}" -v threshold="$(COVERAGE_THRESHOLD)" \
 		'BEGIN { if (total+0 < threshold+0) { print "Coverage " total "% below threshold " threshold "%"; exit 1 } }'
 
-lint: ## Run all linters
+lint: check-pubkey-sync ## Run all linters
 	@echo "Running linters..."
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not found. Install: https://golangci-lint.run/welcome/install/"; exit 1; }
 	golangci-lint run --timeout=5m
+
+check-pubkey-sync: ## Fail if the release signing public key in cmd/update.go and install.sh have drifted apart
+	@sh scripts/check-pubkey-sync.sh
 
 nilcheck: ## Static nil-pointer safety analysis (requires: go install go.uber.org/nilaway/cmd/nilaway@latest)
 	@echo "Running nilaway nil pointer analysis..."
