@@ -308,15 +308,8 @@ func setupTestDB(t *testing.T) (*sql.DB, string) {
 		t.Fatalf("Unable to create test database: %v", err)
 	}
 
-	if migrationsErr := database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath); migrationsErr != nil {
-		t.Fatalf("failed to run migrations: %v", migrationsErr)
-	}
-
-	_, dirty, err := database.GetCurrentVersion(db, database.MigrationsFS, database.MigrationsPath)
-	if err != nil {
-		fmt.Printf("Warning: Could not get schema version: %v\n", err)
-	} else if dirty {
-		t.Fatal("Database is in a dirty state. Manual intervention required.")
+	if err := prepareDatabase(db); err != nil {
+		t.Fatalf("prepareDatabase: %v", err)
 	}
 
 	return db, tempDir

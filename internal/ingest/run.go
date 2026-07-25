@@ -20,18 +20,8 @@ func Run(ctx context.Context, dbPath string, logPath string) error {
 	}
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
-	if migrationsErr := database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath); migrationsErr != nil {
-		return fmt.Errorf("failed to run migrations: %w", migrationsErr)
-	}
-
-	version, dirty, err := database.GetCurrentVersion(db, database.MigrationsFS, database.MigrationsPath)
-	if err != nil {
-		log.Printf("Warning: Could not get schema version: %v", err)
-	} else {
-		log.Printf("Database schema version: %d (dirty: %v)", version, dirty)
-		if dirty {
-			log.Fatal("Database is in a dirty state. Manual intervention required.")
-		}
+	if err := prepareDatabase(db); err != nil {
+		return err
 	}
 
 	pageViews := make(chan PageView, 100)
@@ -47,6 +37,25 @@ func Run(ctx context.Context, dbPath string, logPath string) error {
 	tailArgs := []string{"-F", logPath}
 	if err := tailLog(ctx, tailArgs, pageViews); err != nil {
 		return fmt.Errorf("tailing log: %w", err)
+	}
+	return nil
+}
+
+// prepareDatabase runs pending migrations and validates the resulting schema state.
+func prepareDatabase(db *sql.DB) error {
+	if migrationsErr := database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath); migrationsErr != nil {
+		return fmt.Errorf("failed to run migrations: %w", migrationsErr)
+	}
+
+	version, dirty, err := database.GetCurrentVersion(db, database.MigrationsFS, database.MigrationsPath)
+	if err != nil {
+		log.Printf("Warning: Could not get schema version: %v", err)
+		return nil
+	}
+
+	log.Printf("Database schema version: %d (dirty: %v)", version, dirty)
+	if dirty {
+		log.Fatal("Database is in a dirty state. Manual intervention required.")
 	}
 	return nil
 }
