@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bufio"
 	"bytes"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func TestConfirm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			in := strings.NewReader(tt.input)
+			in := bufio.NewReader(strings.NewReader(tt.input))
 			out := &bytes.Buffer{}
 			got := Confirm(in, out, "proceed?", tt.defaultYes)
 			if got != tt.want {

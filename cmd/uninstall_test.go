@@ -78,6 +78,34 @@ func TestRunUninstallPurgeRemovesData(t *testing.T) {
 	}
 }
 
+// TestRunUninstallBothPromptsAnsweredTogether guards against a regression
+// where each ui.Confirm call wrapped its input in a fresh bufio.Reader: the
+// first call's reader could buffer ahead past its own answer, so piped batch
+// input like "y\ny\n" (both prompts answered up front, as with `printf
+// "y\ny\n" | theia uninstall`) would starve the second prompt and read back
+// as EOF, silently defaulting it to false. Both prompts must share one
+// bufio.Reader over stdin.
+func TestRunUninstallBothPromptsAnsweredTogether(t *testing.T) {
+	dir := t.TempDir()
+	exePath := writeFakeBinary(t, dir)
+	dataDir := filepath.Join(dir, "data")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	if err := runUninstall(context.Background(), strings.NewReader("y\ny\n"), buf, exePath, dataDir, false, false); err != nil {
+		t.Fatalf("runUninstall: %v", err)
+	}
+
+	if _, err := os.Stat(exePath); !os.IsNotExist(err) {
+		t.Errorf("expected binary to be removed, stat err: %v", err)
+	}
+	if _, err := os.Stat(dataDir); !os.IsNotExist(err) {
+		t.Errorf("expected data dir to be removed when second prompt answered y, stat err: %v", err)
+	}
+}
+
 func TestRunUninstallMissingBinaryIsNotAnError(t *testing.T) {
 	dir := t.TempDir()
 	exePath := filepath.Join(dir, "already-gone")
