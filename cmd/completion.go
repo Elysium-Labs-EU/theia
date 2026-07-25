@@ -2,11 +2,15 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/Elysium-Labs-EU/theia/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -83,6 +87,35 @@ func writeCompletionScript(root *cobra.Command, shell, path string) error {
 		return closeErr
 	}
 	return genErr
+}
+
+// refreshInstalledCompletions regenerates completion scripts for shells that
+// already have one installed, after `theia system update` replaces the theia
+// binary on disk. It shells out to the new binary (rather than using the
+// in-process root command) because the running process still holds the old
+// CLI surface in memory; only the new binary knows about commands/flags it
+// just added.
+func refreshInstalledCompletions(ctx context.Context, out io.Writer, binaryPath string) {
+	for _, shell := range []string{"bash", "zsh", "fish"} {
+		targetPath, err := completionTargetPath(shell)
+		if err != nil {
+			continue
+		}
+		if _, statErr := os.Stat(targetPath); statErr != nil {
+			continue // not installed for this shell; nothing to refresh
+		}
+
+		script, err := exec.CommandContext(ctx, binaryPath, "completion", shell).Output() // #nosec G204 -- binaryPath is the theia binary just installed by system update
+		if err != nil {
+			_, _ = fmt.Fprintf(out, "%s could not refresh %s completion: %v\n", ui.LabelWarning.Render("warning"), shell, err)
+			continue
+		}
+		if writeErr := os.WriteFile(targetPath, script, 0o600); writeErr != nil {
+			_, _ = fmt.Fprintf(out, "%s could not write refreshed %s completion: %v\n", ui.LabelWarning.Render("warning"), shell, writeErr)
+			continue
+		}
+		_, _ = fmt.Fprintf(out, "%s refreshed %s completion\n", ui.LabelSuccess.Render("✓"), shell)
+	}
 }
 
 // confirmYesNo prints a yes/no prompt to cmd's output and reads one line of

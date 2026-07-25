@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -290,6 +291,136 @@ func TestCompletionInteractive_ConfirmZsh(t *testing.T) {
 	}
 	if !strings.Contains(outStr, "patched") {
 		t.Errorf("expected 'patched' in output, got: %s", outStr)
+	}
+}
+
+func writeFakeShellBinary(t *testing.T, dir, script string) string {
+	t.Helper()
+	path := filepath.Join(dir, "fake-theia")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+		t.Fatalf("writing fake binary: %v", err)
+	}
+	return path
+}
+
+func TestRefreshInstalledCompletions_SkipsNotInstalled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	fakeBinary := writeFakeShellBinary(t, t.TempDir(), `echo "NEWSCRIPT"`)
+	var out bytes.Buffer
+
+	refreshInstalledCompletions(context.Background(), &out, fakeBinary)
+
+	if out.Len() != 0 {
+		t.Errorf("expected no output when no shells have completion installed, got: %s", out.String())
+	}
+}
+
+func TestRefreshInstalledCompletions_RefreshesInstalled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	zshPath, err := completionTargetPath("zsh")
+	if err != nil {
+		t.Fatalf("resolving zsh target path: %v", err)
+	}
+	if mkdirErr := os.MkdirAll(filepath.Dir(zshPath), 0o750); mkdirErr != nil {
+		t.Fatalf("preparing zsh completion dir: %v", mkdirErr)
+	}
+	if writeErr := os.WriteFile(zshPath, []byte("#compdef old\n"), 0o600); writeErr != nil {
+		t.Fatalf("seeding old zsh completion: %v", writeErr)
+	}
+
+	fakeBinary := writeFakeShellBinary(t, t.TempDir(), `echo "NEWSCRIPT"`)
+	var out bytes.Buffer
+
+	refreshInstalledCompletions(context.Background(), &out, fakeBinary)
+
+	data, err := os.ReadFile(zshPath)
+	if err != nil {
+		t.Fatalf("reading refreshed zsh completion: %v", err)
+	}
+	if !strings.Contains(string(data), "NEWSCRIPT") {
+		t.Errorf("expected refreshed zsh completion content, got: %s", string(data))
+	}
+	if !strings.Contains(out.String(), "refreshed zsh completion") {
+		t.Errorf("expected refresh confirmation message, got: %s", out.String())
+	}
+
+	for _, shell := range []string{"bash", "fish"} {
+		p, pathErr := completionTargetPath(shell)
+		if pathErr != nil {
+			t.Fatalf("resolving %s target path: %v", shell, pathErr)
+		}
+		if _, statErr := os.Stat(p); statErr == nil {
+			t.Errorf("did not expect %s completion to be created, it was never installed", shell)
+		}
+	}
+}
+
+func TestRefreshInstalledCompletions_WarnsOnExecFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	zshPath, err := completionTargetPath("zsh")
+	if err != nil {
+		t.Fatalf("resolving zsh target path: %v", err)
+	}
+	if mkdirErr := os.MkdirAll(filepath.Dir(zshPath), 0o750); mkdirErr != nil {
+		t.Fatalf("preparing zsh completion dir: %v", mkdirErr)
+	}
+	if writeErr := os.WriteFile(zshPath, []byte("#compdef old\n"), 0o600); writeErr != nil {
+		t.Fatalf("seeding old zsh completion: %v", writeErr)
+	}
+
+	fakeBinary := writeFakeShellBinary(t, t.TempDir(), `exit 1`)
+	var out bytes.Buffer
+
+	refreshInstalledCompletions(context.Background(), &out, fakeBinary)
+
+	if !strings.Contains(out.String(), "could not refresh zsh completion") {
+		t.Errorf("expected warning about failed refresh, got: %s", out.String())
+	}
+
+	data, err := os.ReadFile(zshPath)
+	if err != nil {
+		t.Fatalf("reading zsh completion: %v", err)
+	}
+	if string(data) != "#compdef old\n" {
+		t.Errorf("expected zsh completion left untouched on exec failure, got: %s", data)
+	}
+}
+
+func TestRefreshInstalledCompletions_WarnsOnWriteFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	zshPath, err := completionTargetPath("zsh")
+	if err != nil {
+		t.Fatalf("resolving zsh target path: %v", err)
+	}
+	if mkdirErr := os.MkdirAll(filepath.Dir(zshPath), 0o750); mkdirErr != nil {
+		t.Fatalf("preparing zsh completion dir: %v", mkdirErr)
+	}
+	if writeErr := os.WriteFile(zshPath, []byte("#compdef old\n"), 0o600); writeErr != nil {
+		t.Fatalf("seeding old zsh completion: %v", writeErr)
+	}
+	// Replace the target with a directory so os.WriteFile fails on it.
+	if rmErr := os.Remove(zshPath); rmErr != nil {
+		t.Fatalf("removing seeded file: %v", rmErr)
+	}
+	if mkdirErr := os.Mkdir(zshPath, 0o750); mkdirErr != nil {
+		t.Fatalf("seeding zsh completion as a directory: %v", mkdirErr)
+	}
+
+	fakeBinary := writeFakeShellBinary(t, t.TempDir(), `echo "NEWSCRIPT"`)
+	var out bytes.Buffer
+
+	refreshInstalledCompletions(context.Background(), &out, fakeBinary)
+
+	if !strings.Contains(out.String(), "could not write refreshed zsh completion") {
+		t.Errorf("expected warning about failed write, got: %s", out.String())
 	}
 }
 
