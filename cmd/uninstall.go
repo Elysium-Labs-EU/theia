@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -43,7 +44,11 @@ func stopAndDisableService(ctx context.Context, out io.Writer) {
 // systemd, or os.Executable() (which, under `go test`, is the test binary
 // itself).
 func runUninstall(ctx context.Context, in io.Reader, out io.Writer, exePath, dataDir string, yes, purge bool) error {
-	if !yes && !ui.Confirm(in, out, fmt.Sprintf("Remove theia (%s)?", exePath), false) {
+	// Shared across both prompts below: a fresh bufio.Reader per prompt can
+	// read ahead past the first answer and silently swallow the second.
+	reader := bufio.NewReader(in)
+
+	if !yes && !ui.Confirm(reader, out, fmt.Sprintf("Remove theia (%s)?", exePath), false) {
 		_, _ = fmt.Fprintln(out, "Canceled.")
 		return nil
 	}
@@ -61,7 +66,7 @@ func runUninstall(ctx context.Context, in io.Reader, out io.Writer, exePath, dat
 
 	removeData := purge
 	if !removeData && !yes {
-		removeData = ui.Confirm(in, out, fmt.Sprintf("Also remove theia data (%s)?", dataDir), false)
+		removeData = ui.Confirm(reader, out, fmt.Sprintf("Also remove theia data (%s)?", dataDir), false)
 	}
 
 	if removeData {
