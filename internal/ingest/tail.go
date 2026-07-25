@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // maxLogLineSize bounds how much of a single log line tailLog will buffer.
@@ -14,18 +15,27 @@ import (
 // keeps memory use bounded while staying generous enough for realistic traffic.
 const maxLogLineSize = 1 << 20 // 1 MiB
 
-func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) {
+// tailLog runs "tail" over tailArgs and streams parsed lines to pageViews
+// until ctx is canceled or the tail process exits.
+//
+// A non-nil error means tail exited on its own (e.g. the log file is
+// missing, or unreadable due to permissions) rather than being killed by
+// ctx cancellation; it wraps tail's own stderr diagnostic so the caller can
+// surface a clear, actionable message instead of the daemon silently going
+// idle.
+func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) error {
 	tailLogCommand := exec.CommandContext(ctx, "tail", tailArgs...) //nolint:gosec // args are internal, not user input
+
+	var stderr bytes.Buffer
+	tailLogCommand.Stderr = &stderr
+
 	readCloser, err := tailLogCommand.StdoutPipe()
 	if err != nil {
-		fmt.Printf("error occurred during setting up log reading, got: %v\n", err)
-		return
+		return fmt.Errorf("setting up log reading: %w", err)
 	}
 
-	err = tailLogCommand.Start()
-	if err != nil {
-		fmt.Printf("error occurred during starting log reading, got: %v\n", err)
-		return
+	if err := tailLogCommand.Start(); err != nil {
+		return fmt.Errorf("starting log reading: %w", err)
 	}
 
 	scanner := bufio.NewScanner(readCloser)
@@ -46,7 +56,22 @@ func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) 
 	if scanErr := scanner.Err(); scanErr != nil {
 		fmt.Printf("error occurred during reading of the log, got: %v\n", scanErr)
 	}
-	_ = tailLogCommand.Wait()
+
+	waitErr := tailLogCommand.Wait()
+	if ctx.Err() != nil {
+		// exec.CommandContext killed the process to honor shutdown, so
+		// waitErr (e.g. "signal: killed") is expected, not a failure.
+		return nil //nolint:nilerr // shutdown-triggered kill, not a real error
+	}
+	if waitErr == nil {
+		return nil
+	}
+
+	stderrMsg := strings.TrimSpace(stderr.String())
+	if stderrMsg == "" {
+		return fmt.Errorf("tail exited unexpectedly: %w", waitErr)
+	}
+	return fmt.Errorf("tail exited unexpectedly: %w: %s", waitErr, stderrMsg)
 }
 
 // splitLinesSkippingOverlong is a bufio.SplitFunc equivalent to bufio.ScanLines

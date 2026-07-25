@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,7 +30,9 @@ func TestTailLogFollowsRenameBasedRotation(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		tailLog(ctx, []string{"-F", logPath}, pageViews)
+		if err := tailLog(ctx, []string{"-F", logPath}, pageViews); err != nil {
+			t.Errorf("tailLog returned unexpected error: %v", err)
+		}
 	}()
 
 	first := waitForPageView(t, pageViews)
@@ -54,6 +57,23 @@ func TestTailLogFollowsRenameBasedRotation(t *testing.T) {
 
 	cancel()
 	<-done
+}
+
+// TestTailLog_ReturnsErrorWithStderrForInvalidArgs is a regression test for
+// #15: tailLogCommand.Stderr was never wired up, so when the "tail" process
+// exits on its own (as opposed to being killed by ctx cancellation) its
+// diagnostic was silently discarded and tailLog returned nothing. tailLog
+// must now return an error that carries tail's stderr output.
+func TestTailLog_ReturnsErrorWithStderrForInvalidArgs(t *testing.T) {
+	pageViews := make(chan PageView, 1)
+
+	err := tailLog(t.Context(), []string{"--this-flag-does-not-exist"}, pageViews)
+	if err == nil {
+		t.Fatal("expected tailLog to return an error for an invalid tail argument, got nil")
+	}
+	if !strings.Contains(err.Error(), "this-flag-does-not-exist") {
+		t.Errorf("expected error to carry tail's stderr diagnostic, got: %v", err)
+	}
 }
 
 func waitForPageView(t *testing.T, pageViews <-chan PageView) PageView {
