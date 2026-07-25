@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/Elysium-Labs-EU/theia/database"
 	"github.com/Elysium-Labs-EU/theia/internal/query"
@@ -125,6 +127,26 @@ func collectStats(ctx context.Context, db *sql.DB, since time.Time, host string,
 	}, nil
 }
 
+// sanitizeTerminalField makes a log-derived string safe to print into a
+// terminal table. Path, Host and Referrer come straight from attacker-
+// controlled nginx access-log fields, so a crafted request can embed ANSI
+// escape sequences (ESC 0x1b), carriage returns, or other control codes that
+// would otherwise be rendered verbatim — moving the cursor, recoloring output,
+// or corrupting the table layout when an operator runs `theia stats`. Replace
+// every control rune with U+FFFD, and literal tabs with a space so they can't
+// break tabwriter's column alignment.
+func sanitizeTerminalField(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\t' {
+			return ' '
+		}
+		if unicode.IsControl(r) {
+			return '�'
+		}
+		return r
+	}, s)
+}
+
 func renderTable(cmd *cobra.Command, r *statsReport, days int, host string) error {
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
@@ -145,7 +167,7 @@ func renderTable(cmd *cobra.Command, r *statsReport, days int, host string) erro
 	} else {
 		_, _ = fmt.Fprintln(w, "  PATH\tHOST\tPAGEVIEWS")
 		for _, p := range r.TopPaths {
-			_, _ = fmt.Fprintf(w, "  %s\t%s\t%d\n", p.Path, p.Host, p.Pageviews)
+			_, _ = fmt.Fprintf(w, "  %s\t%s\t%d\n", sanitizeTerminalField(p.Path), sanitizeTerminalField(p.Host), p.Pageviews)
 		}
 	}
 
@@ -167,7 +189,7 @@ func renderTable(cmd *cobra.Command, r *statsReport, days int, host string) erro
 	} else {
 		_, _ = fmt.Fprintln(w, "  REFERRER\tCOUNT")
 		for _, ref := range r.TopReferrers {
-			_, _ = fmt.Fprintf(w, "  %s\t%d\n", ref.Referrer, ref.Count)
+			_, _ = fmt.Fprintf(w, "  %s\t%d\n", sanitizeTerminalField(ref.Referrer), ref.Count)
 		}
 	}
 
