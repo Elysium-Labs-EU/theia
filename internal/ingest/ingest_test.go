@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -151,14 +150,13 @@ func assertTableCount(t *testing.T, db *sql.DB, table, query string, want int) {
 func runPeriodicCleanupAndAssertCounts(t *testing.T, db *sql.DB, want cleanupCounts) {
 	t.Helper()
 	ticker := time.NewTicker(1 * time.Second)
-	shutdown := make(chan os.Signal, 1)
+	ctx, cancel := context.WithCancel(t.Context())
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go runPeriodicCleanupsWithWaitGroup(t.Context(), db, ticker, shutdown, &wg)
+	go runPeriodicCleanupsWithWaitGroup(ctx, db, ticker, &wg)
 
-	shutdown <- syscall.SIGTERM
-	close(shutdown)
+	cancel()
 	wg.Wait()
 
 	assertTableCount(t, db, "hourly_stats", "SELECT COUNT(*) FROM hourly_stats", want.hourlyStats)
@@ -287,6 +285,37 @@ func TestTailLogSkipsOverlongLineAndContinues(t *testing.T) {
 	}
 }
 
+// TestRunStopsOnContextCancellation is a regression test for #14: Run used
+// to ignore its context entirely for shutdown, so a canceled ctx (as would
+// happen on SIGINT/SIGTERM once cmd.Execute wires one in) never stopped the
+// blocking "tail -f" read loop and Run ran forever.
+func TestRunStopsOnContextCancellation(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	logPath := filepath.Join(tempDir, "access.log")
+	createTestLogFile(t, logPath, nil)
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, dbPath, logPath)
+	}()
+
+	// Give "tail -f" time to start before simulating the shutdown signal.
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run() did not return within 5s of context cancellation (regression of #14)")
+	}
+}
+
 func newTestDB(ctx context.Context, dbPath string) (*sql.DB, error) {
 	dir := filepath.Dir(dbPath)
 	err := os.MkdirAll(dir, 0755)
@@ -325,9 +354,9 @@ func processPageviewsWithWaitGroup(ctx context.Context, db *sql.DB, pageViews <-
 	processPageviews(ctx, db, pageViews)
 }
 
-func runPeriodicCleanupsWithWaitGroup(ctx context.Context, db *sql.DB, ticker *time.Ticker, shutdown <-chan os.Signal, wg *sync.WaitGroup) {
+func runPeriodicCleanupsWithWaitGroup(ctx context.Context, db *sql.DB, ticker *time.Ticker, wg *sync.WaitGroup) {
 	defer wg.Done()
-	runPeriodicCleanup(ctx, db, ticker, shutdown)
+	runPeriodicCleanup(ctx, context.WithoutCancel(ctx), db, ticker)
 }
 
 func createTestLogFile(t *testing.T, logPath string, logLines []string) {
