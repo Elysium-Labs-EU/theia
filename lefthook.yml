@@ -4,6 +4,9 @@ pre-commit:
     - name: govet
       run: go vet
 
+    - name: lint
+      run: golangci-lint run --timeout=5m
+
     - name: tests
       run: go test . ./database -v
       interactive: true
