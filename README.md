@@ -16,6 +16,11 @@ Server-side analytics tool that tracks page views by parsing nginx access logs. 
 
 ### Quick Installation
 
+The installer requires `bash`. Most distributions ship it by default; stock
+Alpine does not, so install it first with `apk add bash`. If you run the script
+with `sh install.sh` on a system that has bash, it re-execs into bash
+automatically; if bash is missing it tells you exactly how to install it.
+
 Using curl
 ```bash
 curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/theia/main/install.sh -o install.sh
