@@ -64,8 +64,7 @@ func Run(ctx context.Context, dbPath string, logPath string) error {
 	// "tail -F" child and unblocks the scanner loop below. A non-nil
 	// return instead means tail exited on its own (e.g. missing file,
 	// permission denied), which must reach the caller as a real failure.
-	tailArgs := []string{"-F", logPath}
-	tailErr := tailLog(ctx, tailArgs, pageViews)
+	tailErr := tailLog(ctx, buildTailArgs(logPath), pageViews)
 	if tailErr != nil {
 		log.Printf("Log tailing stopped: %v", tailErr)
 	} else {
@@ -93,6 +92,19 @@ func checkLogFileReadable(logPath string) error {
 		return fmt.Errorf("closing log file %q after readability check: %w", logPath, err)
 	}
 	return nil
+}
+
+// buildTailArgs builds the argument list for the "tail" child that follows the
+// access log. The leading "-n 0" is load-bearing: without it, tail defaults to
+// "-n 10" and replays the last 10 lines already in the file before following
+// new appends. Since ingest has no offset/watermark and treats every emitted
+// line as a fresh page view, that replay makes every daemon restart (systemctl
+// restart, crash respawn, host reboot, system update) silently re-count up to
+// the last 10 lines into hourly_stats/hourly_status_codes/hourly_referrers.
+// "-n 0" starts following at end-of-file, so a restart against an unchanged log
+// records nothing. "-F" (not "-f") keeps following across log rotation.
+func buildTailArgs(logPath string) []string {
+	return []string{"-n", "0", "-F", logPath}
 }
 
 // runPeriodicCleanup runs performAllCleanups on a timer until shutdown is
