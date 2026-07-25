@@ -3,7 +3,9 @@ package ingest
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +53,9 @@ func runIngestScenario(t *testing.T, logLines []string) *sql.DB {
 	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
 
 	tailArgs := []string{"-n", "+1", logPath}
-	tailLog(t.Context(), tailArgs, pageViews)
+	if err := tailLog(t.Context(), tailArgs, pageViews); err != nil {
+		t.Errorf("tailLog returned unexpected error: %v", err)
+	}
 	close(pageViews)
 	wg.Wait()
 
@@ -269,7 +273,9 @@ func TestTailLogSkipsOverlongLineAndContinues(t *testing.T) {
 	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
 
 	tailArgs := []string{"-n", "+1", logPath}
-	tailLog(t.Context(), tailArgs, pageViews)
+	if err := tailLog(t.Context(), tailArgs, pageViews); err != nil {
+		t.Errorf("tailLog returned unexpected error: %v", err)
+	}
 	close(pageViews)
 	wg.Wait()
 
@@ -313,6 +319,57 @@ func TestRunStopsOnContextCancellation(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run() did not return within 5s of context cancellation (regression of #14)")
+	}
+}
+
+// TestRun_ReturnsErrorForMissingLogFile is a regression test for #15: tail
+// -F retries indefinitely on a missing file rather than exiting, so Run
+// used to hang doing nothing until shutdown and then return nil, giving no
+// indication the daemon never actually tailed anything. Run must instead
+// fail fast with an error identifiable as fs.ErrNotExist.
+func TestRun_ReturnsErrorForMissingLogFile(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	logPath := filepath.Join(tempDir, "does-not-exist.log")
+
+	err := Run(t.Context(), dbPath, logPath)
+	if err == nil {
+		t.Fatal("expected Run to return an error for a missing log file, got nil")
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("expected error to wrap fs.ErrNotExist, got: %v", err)
+	}
+	if _, statErr := os.Stat(dbPath); statErr == nil {
+		t.Errorf("expected Run to fail before creating the database at %s", dbPath)
+	}
+}
+
+// TestRun_ReturnsErrorForUnreadableLogFile is a regression test for #15:
+// same as TestRun_ReturnsErrorForMissingLogFile but for a log file that
+// exists yet isn't readable (e.g. wrong permissions), the other case named
+// in the issue.
+func TestRun_ReturnsErrorForUnreadableLogFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: file permissions don't restrict reads")
+	}
+
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	logPath := filepath.Join(tempDir, "noperm.log")
+
+	if err := os.WriteFile(logPath, nil, 0o000); err != nil {
+		t.Fatalf("failed to create unreadable log file: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(logPath, 0o600)
+	})
+
+	err := Run(t.Context(), dbPath, logPath)
+	if err == nil {
+		t.Fatal("expected Run to return an error for an unreadable log file, got nil")
+	}
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("expected error to wrap fs.ErrPermission, got: %v", err)
 	}
 }
 

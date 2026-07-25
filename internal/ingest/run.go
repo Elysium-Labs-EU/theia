@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -12,6 +13,14 @@ import (
 )
 
 func Run(ctx context.Context, dbPath string, logPath string) error {
+	// "tail -F" retries indefinitely when the file is missing or
+	// unreadable rather than exiting, so a bad --log-path would otherwise
+	// leave the daemon polling forever with no visible error. Fail fast
+	// here with a clear message instead.
+	if err := checkLogFileReadable(logPath); err != nil {
+		return err
+	}
+
 	db, err := database.Open(ctx, dbPath)
 	if err != nil {
 		return err
@@ -52,14 +61,37 @@ func Run(ctx context.Context, dbPath string, logPath string) error {
 
 	// tailLog blocks until ctx is canceled (e.g. by a SIGINT/SIGTERM wired
 	// in by cmd.Execute), at which point exec.CommandContext kills the
-	// "tail -F" child and unblocks the scanner loop below.
+	// "tail -F" child and unblocks the scanner loop below. A non-nil
+	// return instead means tail exited on its own (e.g. missing file,
+	// permission denied), which must reach the caller as a real failure.
 	tailArgs := []string{"-F", logPath}
-	tailLog(ctx, tailArgs, pageViews)
+	tailErr := tailLog(ctx, tailArgs, pageViews)
+	if tailErr != nil {
+		log.Printf("Log tailing stopped: %v", tailErr)
+	} else {
+		log.Println("Shutdown signal received, stopping...")
+	}
 
-	log.Println("Shutdown signal received, stopping...")
 	close(pageViews)
 	wg.Wait()
 
+	if tailErr != nil {
+		return fmt.Errorf("tailing log: %w", tailErr)
+	}
+	return nil
+}
+
+// checkLogFileReadable returns a wrapped, actionable error (unwrappable via
+// errors.Is against fs.ErrNotExist / fs.ErrPermission) if logPath can't be
+// opened for reading.
+func checkLogFileReadable(logPath string) error {
+	logFile, err := os.Open(logPath) //nolint:gosec // path is an operator-provided flag, not user input
+	if err != nil {
+		return fmt.Errorf("opening log file %q: %w", logPath, err)
+	}
+	if err := logFile.Close(); err != nil {
+		return fmt.Errorf("closing log file %q after readability check: %w", logPath, err)
+	}
 	return nil
 }
 

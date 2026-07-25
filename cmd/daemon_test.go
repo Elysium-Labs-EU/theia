@@ -48,3 +48,32 @@ func TestDaemonCmd_StopsOnContextCancellation(t *testing.T) {
 		t.Fatal("daemon did not stop within 5s of context cancellation (regression of #14: SIGTERM/SIGINT never actually shuts down the daemon)")
 	}
 }
+
+// TestDaemonCmd_ReturnsErrorForMissingLogFile is a regression test for #15:
+// the daemon used to return nil (and so, via cmd/root.go's Execute, exit 0)
+// when given a --log-path that doesn't exist, because "tail -F" retries
+// forever without exiting and its diagnostic was discarded. The command must
+// now return a non-nil error so the process exits non-zero with a clear
+// message.
+func TestDaemonCmd_ReturnsErrorForMissingLogFile(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "theia.db")
+	logPath := filepath.Join(tempDir, "does-not-exist.log")
+
+	daemonCmd := newDaemonCmd()
+	daemonCmd.SetArgs([]string{"--db-path", dbPath, "--log-path", logPath})
+
+	done := make(chan error, 1)
+	go func() {
+		done <- daemonCmd.ExecuteContext(context.Background())
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected daemon command to return an error for a missing log file, got nil")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("daemon did not return within 5s for a missing log file (regression of #15: tail -F retries forever instead of failing fast)")
+	}
+}
