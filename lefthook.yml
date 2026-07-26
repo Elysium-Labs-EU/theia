@@ -5,7 +5,11 @@ pre-commit:
       run: go vet
 
     - name: lint
-      run: golangci-lint run --timeout=5m
+      # Pinned to the golangci-lint version CI installs (Makefile `setup`: v2.11.0) via
+      # `go run`, so local lint is byte-identical to CI regardless of what's on PATH.
+      # Prevents version-drift false failures (e.g. G115) that tempt `git commit --no-verify`.
+      # Keep this version in sync with the one in the Makefile `setup` target.
+      run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.0 run --timeout=5m
 
     - name: tests
       run: go test . ./database -v
