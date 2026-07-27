@@ -27,7 +27,6 @@ To print the script to stdout instead (for manual setup or scripting), pass the 
   theia completion zsh
   theia completion fish`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cmd.SilenceUsage = true
 			return runInteractiveCompletion(cmd, root)
 		},
 	}
@@ -118,15 +117,6 @@ func refreshInstalledCompletions(ctx context.Context, out io.Writer, binaryPath 
 	}
 }
 
-// confirmYesNo prints a yes/no prompt to cmd's output and reads one line of
-// response from its input. An empty response (bare Enter) resolves to false.
-func confirmYesNo(cmd *cobra.Command, prompt string) bool {
-	cmd.Printf("%s [y/N] ", prompt)
-	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-	line = strings.TrimSpace(strings.ToLower(line))
-	return line == "y" || line == "yes"
-}
-
 func runInteractiveCompletion(cmd *cobra.Command, root *cobra.Command) error {
 	shell := detectShell()
 	if shell == "" {
@@ -145,7 +135,8 @@ func runInteractiveCompletion(cmd *cobra.Command, root *cobra.Command) error {
 
 	cmd.Printf("\n  Detected shell: %s\n\n", shell)
 
-	if !confirmYesNo(cmd, fmt.Sprintf("Install tab completion for %s?", shell)) {
+	reader := bufio.NewReader(cmd.InOrStdin())
+	if !ui.Confirm(reader, cmd.OutOrStdout(), fmt.Sprintf("Install tab completion for %s?", shell), false) {
 		cmd.Printf("\n  Skipped. Run 'theia completion %s' to print the script manually.\n\n", shell)
 		return nil
 	}
@@ -220,7 +211,6 @@ Install system-wide (requires sudo):
 Install for current user (no sudo):
   theia completion bash > ~/.local/share/bash-completion/completions/theia`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cmd.SilenceUsage = true
 			return root.GenBashCompletionV2(cmd.OutOrStdout(), true)
 		},
 	}
@@ -237,7 +227,6 @@ Install:
 
 Then reload: exec $SHELL`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cmd.SilenceUsage = true
 			return root.GenZshCompletion(cmd.OutOrStdout())
 		},
 	}
@@ -252,7 +241,6 @@ func newCompletionFishCmd(root *cobra.Command) *cobra.Command {
 Install:
   theia completion fish > ~/.config/fish/completions/theia.fish`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cmd.SilenceUsage = true
 			return root.GenFishCompletion(cmd.OutOrStdout(), true)
 		},
 	}
