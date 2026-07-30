@@ -35,6 +35,13 @@ func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) 
 	}
 
 	if err := tailLogCommand.Start(); err != nil {
+		if ctx.Err() != nil {
+			// ctx was already canceled by the time Start ran (e.g. shutdown
+			// landed while Run was still doing DB setup/migrations), so
+			// exec.CommandContext refused to start the process at all. That's
+			// a graceful shutdown, not a failure to report.
+			return nil //nolint:nilerr // shutdown-triggered refusal to start, not a real error
+		}
 		return fmt.Errorf("starting log reading: %w", err)
 	}
 
