@@ -17,6 +17,30 @@ permissions:
   pull-requests: read
 
 jobs:
+  typos:
+    name: Typos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Check spelling
+        uses: crate-ci/typos@v1
+
+  file-size:
+    name: File Size
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check file size and LFS pointers
+        run: make check-file-size
+        env:
+          FILE_SIZE_BASE: origin/${{ github.base_ref }}
+
   test:
     name: Test
     runs-on: ubuntu-latest
