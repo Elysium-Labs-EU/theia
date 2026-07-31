@@ -24,17 +24,17 @@ else
 fi
 
 CHANGED="$(git diff --name-only --diff-filter=ACM "$DIFF_BASE" HEAD || true)"
-if [ -z "$CHANGED" ]; then
+if [[ -z "$CHANGED" ]]; then
   echo "check-file-size: no added/modified files vs $BASE; nothing to gate."
   exit 0
 fi
 
 failed=0
 while IFS= read -r f; do
-  [ -f "$f" ] || continue
+  [[ -f "$f" ]] || continue
 
   size=$(wc -c < "$f" | tr -d ' ')
-  if [ "$size" -gt "$MAX_BYTES" ]; then
+  if [[ "$size" -gt "$MAX_BYTES" ]]; then
     echo "check-file-size: $f is $size bytes, exceeds $MAX_BYTES byte cap" >&2
     failed=1
   fi
@@ -45,7 +45,7 @@ while IFS= read -r f; do
   fi
 done <<< "$CHANGED"
 
-if [ "$failed" -ne 0 ]; then
+if [[ "$failed" -ne 0 ]]; then
   exit 1
 fi
 echo "check-file-size: OK, no changed file vs $BASE exceeds $MAX_BYTES bytes or is an LFS pointer."
