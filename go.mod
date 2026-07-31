@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/golang-migrate/migrate/v4 v4.19.1
-	github.com/mattn/go-isatty v0.0.20
+	github.com/mattn/go-isatty v0.0.24
 	github.com/spf13/cobra v1.10.2
 	go.uber.org/goleak v1.3.0
 	golang.org/x/mod v0.38.0
