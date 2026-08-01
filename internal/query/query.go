@@ -52,6 +52,10 @@ func sinceFilter(since time.Time) (year, yearDay int) {
 // no injectable input in the query string.
 const dateRangeClause = "((year > ? OR (year = ? AND year_day >= ?)) AND (year < ? OR (year = ? AND year_day <= ?)))"
 
+// hostFilterClause is the WHERE fragment appended to every query below when
+// a host filter is requested.
+const hostFilterClause = " AND host = ?"
+
 // rangeArgs returns the bind args for dateRangeClause over [from, to].
 func rangeArgs(from, to time.Time) []any {
 	fromYear, fromDay := from.Year(), from.YearDay()
@@ -71,7 +75,7 @@ func GetSummary(ctx context.Context, db *sql.DB, since time.Time, host string) (
 
 	args := []any{year, year, yearDay}
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 
@@ -97,7 +101,7 @@ func getUniqueVisitors(ctx context.Context, db *sql.DB, year, yearDay int, host 
 
 	args := []any{year, year, yearDay}
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 
@@ -119,7 +123,7 @@ func GetTopPaths(ctx context.Context, db *sql.DB, since time.Time, host string, 
 
 	args := []any{year, year, yearDay}
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 	q += " GROUP BY path, host ORDER BY total_pv DESC LIMIT ?"
@@ -152,7 +156,7 @@ func GetStatusCodes(ctx context.Context, db *sql.DB, since time.Time, host strin
 
 	args := []any{year, year, yearDay}
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 	q += " GROUP BY status_code ORDER BY total DESC"
@@ -185,7 +189,7 @@ func GetTopReferrers(ctx context.Context, db *sql.DB, since time.Time, host stri
 
 	args := []any{year, year, yearDay}
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 	q += " GROUP BY referrer ORDER BY total DESC LIMIT ?"
@@ -231,7 +235,7 @@ func getSeriesByDay(ctx context.Context, db *sql.DB, from, to time.Time, host st
 	WHERE `
 	q += dateRangeClause
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 	q += " GROUP BY year, year_day ORDER BY year, year_day"
@@ -287,7 +291,7 @@ func getUniqueVisitorsByDay(ctx context.Context, db *sql.DB, from, to time.Time,
 	WHERE `
 	q += dateRangeClause
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 	q += " GROUP BY year, year_day"
@@ -319,7 +323,7 @@ func getSeriesByHour(ctx context.Context, db *sql.DB, from, to time.Time, host s
 	WHERE `
 	q += dateRangeClause
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 	q += " GROUP BY year, year_day, hour ORDER BY year, year_day, hour"
@@ -362,7 +366,7 @@ func GetTopPathsRange(ctx context.Context, db *sql.DB, from, to time.Time, host 
 	q += `
 	  AND is_static = 0`
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 	q += " GROUP BY path, host ORDER BY total_pv DESC LIMIT ?"
@@ -396,7 +400,7 @@ func GetStatusCodesRange(ctx context.Context, db *sql.DB, from, to time.Time, ho
 	WHERE `
 	q += dateRangeClause
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 	q += " GROUP BY status_code ORDER BY total DESC"
@@ -431,7 +435,7 @@ func GetTopReferrersRange(ctx context.Context, db *sql.DB, from, to time.Time, h
 	q += `
 	  AND referrer != '-'`
 	if host != "" {
-		q += " AND host = ?"
+		q += hostFilterClause
 		args = append(args, host)
 	}
 	q += " GROUP BY referrer ORDER BY total DESC LIMIT ?"
