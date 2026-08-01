@@ -64,6 +64,7 @@ linters:
         - name: if-return
         - name: increment-decrement
         - name: var-naming
+        - name: use-any
     staticcheck:
       checks:
         - all

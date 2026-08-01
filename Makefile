@@ -1,4 +1,4 @@
-.PHONY: help list dev build install test lint check-pubkey-sync nilcheck crap govulncheck secrets leak-test clean docker-* test-docker-* release release-local fix setup
+.PHONY: help list dev build install test lint check-pubkey-sync check-file-size nilcheck crap govulncheck secrets leak-test clean docker-* test-docker-* release release-local fix setup
 .DEFAULT_GOAL := help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -71,6 +71,9 @@ lint: check-pubkey-sync ## Run all linters
 check-pubkey-sync: ## Fail if the release signing public key in cmd/update.go and install.sh have drifted apart
 	@sh scripts/check-pubkey-sync.sh
 
+check-file-size: ## Fail if a changed file vs origin/main is oversized or an LFS pointer
+	@bash scripts/check-file-size.sh
+
 nilcheck: ## Static nil-pointer safety analysis (requires: go install go.uber.org/nilaway/cmd/nilaway@latest)
 	@echo "Running nilaway nil pointer analysis..."
 	@command -v nilaway >/dev/null 2>&1 || { echo "nilaway not found. Run: make setup"; exit 1; }
@@ -110,6 +113,7 @@ ci: ## Run all CI checks locally (runs all, reports all failures)
 	$(MAKE) crap || failed=1; \
 	$(MAKE) govulncheck || failed=1; \
 	$(MAKE) secrets || failed=1; \
+	$(MAKE) check-file-size || failed=1; \
 	if [ $$failed -ne 0 ]; then echo "CI checks FAILED"; exit 1; fi; \
 	echo "All CI checks passed!"
 

@@ -445,7 +445,7 @@ func getVisitorDays(t *testing.T, db *sql.DB) []VisitorDay {
 	visitorDaysQuery := `SELECT * FROM visitor_days`
 	visitorRows, err := db.QueryContext(t.Context(), visitorDaysQuery)
 	if err != nil {
-		t.Fatalf("could not query the database for vistor hashes: %v", err)
+		t.Fatalf("could not query the database for visitor hashes: %v", err)
 	}
 	defer visitorRows.Close() //nolint:errcheck // close error in defer is not actionable
 	var visitorDays []VisitorDay
