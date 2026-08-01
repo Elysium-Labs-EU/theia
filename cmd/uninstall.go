@@ -26,11 +26,11 @@ func stopAndDisableService(ctx context.Context, out io.Writer) {
 		if _, err := os.Stat(theiaServiceUnit); err != nil {
 			return
 		}
-	} else if err := exec.CommandContext(ctx, "systemctl", "stop", theiaService).Run(); err != nil {
+	} else if err := exec.CommandContext(ctx, systemctlPath(), "stop", theiaService).Run(); err != nil { // #nosec G204 -- systemctlPath() only returns a fixed, hardcoded candidate
 		_, _ = fmt.Fprintf(out, "%s could not stop %s: %v\n", ui.LabelWarning.Render("warning"), theiaService, err)
 	}
 
-	_ = exec.CommandContext(ctx, "systemctl", "disable", theiaService).Run()
+	_ = exec.CommandContext(ctx, systemctlPath(), "disable", theiaService).Run() // #nosec G204 -- systemctlPath() only returns a fixed, hardcoded candidate
 
 	if err := os.Remove(theiaServiceUnit); err != nil && !os.IsNotExist(err) {
 		_, _ = fmt.Fprintf(out, "%s could not remove %s: %v\n", ui.LabelWarning.Render("warning"), theiaServiceUnit, err)
