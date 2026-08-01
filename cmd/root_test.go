@@ -13,6 +13,7 @@ func TestRootCmd_NoArgs(t *testing.T) {
 	buf := &bytes.Buffer{}
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
+	cmd.SetArgs([]string{})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
