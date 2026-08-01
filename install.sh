@@ -118,6 +118,15 @@ check_root() {
     fi
 }
 
+check_systemd() {
+    if ! command -v systemctl &> /dev/null; then
+        error "theia requires systemd, but systemctl was not found"
+        dim "  OpenRC and other non-systemd init systems are not currently supported"
+        dim "  Track progress: https://github.com/${REPO}/issues/75"
+        exit 1
+    fi
+}
+
 detect_download_tool() {
     if command -v curl &> /dev/null; then
         echo "curl"
@@ -520,6 +529,7 @@ main() {
 
     info "Running pre-flight checks..."
     check_root
+    check_systemd
 
     local download_tool
     download_tool=$(detect_download_tool)
