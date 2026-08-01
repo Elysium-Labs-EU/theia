@@ -1,4 +1,4 @@
-.PHONY: help list dev build install test lint check-pubkey-sync nilcheck crap leak-test clean docker-* test-docker-* release release-local fix setup
+.PHONY: help list dev build install test lint check-pubkey-sync nilcheck crap govulncheck secrets leak-test clean docker-* test-docker-* release release-local fix setup
 .DEFAULT_GOAL := help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -19,6 +19,10 @@ setup: ## Install dev tools (golangci-lint, nilaway, go-crap) and git hooks
 	go install go.uber.org/nilaway/cmd/nilaway@latest
 	@echo "Installing go-crap (CRAP score analysis)..."
 	go install github.com/padiazg/go-crap@latest
+	@echo "Installing govulncheck..."
+	go install golang.org/x/vuln/cmd/govulncheck@latest
+	@echo "Installing gitleaks..."
+	go install github.com/zricethezav/gitleaks/v8@latest
 	@echo "Setup complete."
 
 help: ## Show this help
@@ -82,6 +86,14 @@ crap-report: ## Full whole-repo CRAP report (informational, non-blocking)
 	@command -v go-crap >/dev/null 2>&1 || { echo "go-crap not found. Run: make setup"; exit 1; }
 	go-crap scan
 
+govulncheck: ## Reachability-aware vulnerability scan (complements OSV-Scanner's lockfile-only scan)
+	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck not found. Run: make setup"; exit 1; }
+	govulncheck ./...
+
+secrets: ## Scan full git history + working tree for committed secrets
+	@command -v gitleaks >/dev/null 2>&1 || { echo "gitleaks not found. Run: make setup"; exit 1; }
+	gitleaks detect --source . --no-banner --redact
+
 leak-test: ## Run tests with goroutine leak detection
 	@echo "Running tests with goroutine leak detection..."
 	go test ./... -count=1 -timeout=60s -v 2>&1 | grep -E "(PASS|FAIL|leak|goroutine)" || true
@@ -96,6 +108,8 @@ ci: ## Run all CI checks locally (runs all, reports all failures)
 	$(MAKE) lint || failed=1; \
 	$(MAKE) nilcheck || failed=1; \
 	$(MAKE) crap || failed=1; \
+	$(MAKE) govulncheck || failed=1; \
+	$(MAKE) secrets || failed=1; \
 	if [ $$failed -ne 0 ]; then echo "CI checks FAILED"; exit 1; fi; \
 	echo "All CI checks passed!"
 
