@@ -23,6 +23,14 @@ func Run(ctx context.Context, dbPath string, logPath string) error {
 
 	db, err := database.Open(ctx, dbPath)
 	if err != nil {
+		if ctx.Err() != nil {
+			// Shutdown landed while Open was still dialing/pinging (e.g. a slow
+			// CI runner burning the caller's fixed pre-cancel sleep on migrations
+			// setup), so PingContext surfaced ctx.Err() as a connect failure.
+			// That's a graceful shutdown, not a real error — same class of race
+			// as tailLog's ctx-canceled-before-Start handling below.
+			return nil
+		}
 		return err
 	}
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
