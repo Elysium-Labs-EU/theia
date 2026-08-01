@@ -9,6 +9,7 @@ GO_SRC="cmd/update.go"
 SH_SRC="install.sh"
 
 extract_pem() {
+    src="$1"
     awk '
         /-----BEGIN PUBLIC KEY-----/ {
             line = $0
@@ -25,7 +26,7 @@ extract_pem() {
             next
         }
         capturing { print }
-    ' "$1"
+    ' "$src"
 }
 
 go_key=$(extract_pem "$GO_SRC")
