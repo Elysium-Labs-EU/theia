@@ -176,13 +176,15 @@ func handleStatusCodes(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+const contentTypeHeader = "Content-Type"
+
 func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(contentTypeHeader, "application/json")
 	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(contentTypeHeader, "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
@@ -233,6 +235,6 @@ func writeStatusCodesCSV(w http.ResponseWriter, entries []statusCodeEntry) {
 // and csv.Writer surfaces that same error again from Flush/Error if it
 // matters, which callers are not expected to check for by design.
 func newCSVWriter(w http.ResponseWriter) *csv.Writer {
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set(contentTypeHeader, "text/csv; charset=utf-8")
 	return csv.NewWriter(w)
 }
