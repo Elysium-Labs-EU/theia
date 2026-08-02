@@ -29,6 +29,27 @@ const theiaRepo = "Elysium-Labs-EU/theia"
 
 const theiaService = "theia.service"
 
+// systemctlCandidates are the only locations theia will look for systemctl —
+// fixed, root-owned directories from the host's own PATH, not a directory
+// list built from the (possibly attacker-influenced) PATH env var. Resolving
+// the bare name "systemctl" through exec.LookPath's default PATH search
+// would let a writable, earlier PATH entry redirect this call to an
+// arbitrary binary (sonar go:S4036).
+var systemctlCandidates = []string{"/usr/bin/systemctl", "/bin/systemctl"}
+
+// systemctlPath returns the first existing candidate from systemctlCandidates,
+// or the last one if none exist so callers still get a deterministic path
+// whose exec failure (rather than a PATH-search substitution) is what
+// surfaces on non-systemd hosts.
+func systemctlPath() string {
+	for _, p := range systemctlCandidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return systemctlCandidates[len(systemctlCandidates)-1]
+}
+
 var httpClient = &http.Client{
 	Timeout: 15 * time.Second,
 }
@@ -497,7 +518,7 @@ func normalizeSemver(v string) string {
 // systemd. Non-systemd environments (dev machines, containers, tests) fail
 // this check harmlessly and are treated as "no service to stop."
 func serviceIsActive(ctx context.Context) bool {
-	return exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", theiaService).Run() == nil
+	return exec.CommandContext(ctx, systemctlPath(), "is-active", "--quiet", theiaService).Run() == nil // #nosec G204 -- systemctlPath() only returns a fixed, hardcoded candidate
 }
 
 // stopService stops theia.service before the binary underneath it gets
@@ -509,7 +530,7 @@ func stopService(ctx context.Context, out io.Writer) bool {
 	if !serviceIsActive(ctx) {
 		return false
 	}
-	if err := exec.CommandContext(ctx, "systemctl", "stop", theiaService).Run(); err != nil {
+	if err := exec.CommandContext(ctx, systemctlPath(), "stop", theiaService).Run(); err != nil { // #nosec G204 -- systemctlPath() only returns a fixed, hardcoded candidate
 		_, _ = fmt.Fprintf(out, "%s could not stop %s: %v\n", ui.LabelWarning.Render("warning"), theiaService, err)
 		return false
 	}
@@ -520,7 +541,7 @@ func stopService(ctx context.Context, out io.Writer) bool {
 // startService restarts theia.service after a binary swap. Only called when
 // stopService reported it actually stopped a running instance.
 func startService(ctx context.Context, out io.Writer) {
-	if err := exec.CommandContext(ctx, "systemctl", "start", theiaService).Run(); err != nil {
+	if err := exec.CommandContext(ctx, systemctlPath(), "start", theiaService).Run(); err != nil { // #nosec G204 -- systemctlPath() only returns a fixed, hardcoded candidate
 		_, _ = fmt.Fprintf(out, "%s could not restart %s: %v\n", ui.LabelWarning.Render("warning"), theiaService, err)
 		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("run:"), ui.TextCommand.Render("sudo systemctl start theia"))
 		return
