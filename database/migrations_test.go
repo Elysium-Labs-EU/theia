@@ -103,24 +103,7 @@ func TestConcurrentMigrationsSameDBPath(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-
-			db, err := database.Open(t.Context(), dbPath)
-			if err != nil {
-				errs[idx] = err
-				return
-			}
-			defer database.Close(db) //nolint:errcheck // cleanup only
-
-			release, err := database.AcquireMigrationLock(dbPath)
-			if err != nil {
-				errs[idx] = err
-				return
-			}
-			defer release() //nolint:errcheck // cleanup only
-
-			if err := database.RunMigrations(db, testMigrationsFS, "migrations"); err != nil {
-				errs[idx] = err
-			}
+			errs[idx] = migrateWithLock(t, dbPath)
 		}(i)
 	}
 	wg.Wait()
@@ -131,14 +114,41 @@ func TestConcurrentMigrationsSameDBPath(t *testing.T) {
 		}
 	}
 
+	verifyMigratedVersion(t, dbPath, "migrations")
+}
+
+// migrateWithLock opens db, acquires the cross-process migration lock, and runs
+// the up migrations — the per-goroutine unit of work raced by
+// TestConcurrentMigrationsSameDBPath.
+func migrateWithLock(t *testing.T, dbPath string) error {
+	t.Helper()
+
+	db, err := database.Open(t.Context(), dbPath)
+	if err != nil {
+		return err
+	}
+	defer database.Close(db) //nolint:errcheck // cleanup only
+
+	release, err := database.AcquireMigrationLock(dbPath)
+	if err != nil {
+		return err
+	}
+	defer release() //nolint:errcheck // cleanup only
+
+	return database.RunMigrations(db, testMigrationsFS, "migrations")
+}
+
+func verifyMigratedVersion(t *testing.T, dbPath, migrationsDir string) {
+	t.Helper()
+
 	db, err := database.Open(t.Context(), dbPath)
 	if err != nil {
 		t.Fatalf("failed to reopen database: %v", err)
 	}
 	defer database.Close(db) //nolint:errcheck // cleanup only
 
-	expectedVersion := getExpectedVersion(t, "migrations")
-	version, dirty, err := database.GetCurrentVersion(db, testMigrationsFS, "migrations")
+	expectedVersion := getExpectedVersion(t, migrationsDir)
+	version, dirty, err := database.GetCurrentVersion(db, testMigrationsFS, migrationsDir)
 	if err != nil {
 		t.Fatalf("failed to get current version: %v", err)
 	}
