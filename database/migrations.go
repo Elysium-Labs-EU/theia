@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/golang-migrate/migrate/v4/source/file" // registers the file:// source driver used by migrations_test.go's file://-based migrate instance
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
