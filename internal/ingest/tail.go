@@ -88,44 +88,57 @@ func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) 
 // terminating newline is found (or at EOF if it never has one), with the
 // total number of bytes discarded for that line.
 func splitLinesSkippingOverlong(maxSize int, onSkip func(size int)) bufio.SplitFunc {
-	skipping := false
-	skippedSize := 0
+	s := &overlongLineSplitter{maxSize: maxSize, onSkip: onSkip}
+	return s.split
+}
 
-	return func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-		if atEOF && len(data) == 0 {
-			return 0, nil, nil
-		}
+// overlongLineSplitter holds the state a bufio.SplitFunc must carry across
+// calls: whether it's mid-skip of an overlong line, and how much of that
+// line has been discarded so far.
+type overlongLineSplitter struct {
+	onSkip      func(size int)
+	maxSize     int
+	skippedSize int
+	skipping    bool
+}
 
-		if skipping {
-			if i := bytes.IndexByte(data, '\n'); i >= 0 {
-				skipping = false
-				onSkip(skippedSize + i)
-				skippedSize = 0
-				return i + 1, nil, nil
-			}
-			skippedSize += len(data)
-			if atEOF {
-				onSkip(skippedSize)
-			}
-			return len(data), nil, nil
-		}
-
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			return i + 1, dropCR(data[:i]), nil
-		}
-
-		if len(data) >= maxSize {
-			skipping = true
-			skippedSize = len(data)
-			return len(data), nil, nil
-		}
-
-		if atEOF {
-			return len(data), dropCR(data), nil
-		}
-
+func (s *overlongLineSplitter) split(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
 		return 0, nil, nil
 	}
+	if s.skipping {
+		return s.continueSkip(data, atEOF)
+	}
+	return s.scan(data, atEOF)
+}
+
+func (s *overlongLineSplitter) continueSkip(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		s.skipping = false
+		s.onSkip(s.skippedSize + i)
+		s.skippedSize = 0
+		return i + 1, nil, nil
+	}
+	s.skippedSize += len(data)
+	if atEOF {
+		s.onSkip(s.skippedSize)
+	}
+	return len(data), nil, nil
+}
+
+func (s *overlongLineSplitter) scan(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		return i + 1, dropCR(data[:i]), nil
+	}
+	if len(data) >= s.maxSize {
+		s.skipping = true
+		s.skippedSize = len(data)
+		return len(data), nil, nil
+	}
+	if atEOF {
+		return len(data), dropCR(data), nil
+	}
+	return 0, nil, nil
 }
 
 func dropCR(data []byte) []byte {
