@@ -50,27 +50,33 @@ ueCARCU4EJIMNNKwWAh9FgC7wAZbrbBRfoPpv0EH4d3m9Sc2obONMw8aGw==
 AUTO_YES=false
 
 info() {
-    echo -e "${BLUE}${BOLD}info${NC} $1"
+    local msg="$1"
+    echo -e "${BLUE}${BOLD}info${NC} ${msg}"
 }
 
 success() {
-    echo -e "${GREEN}${BOLD}✓${NC} $1"
+    local msg="$1"
+    echo -e "${GREEN}${BOLD}✓${NC} ${msg}"
 }
 
 warn() {
-    echo -e "${YELLOW}${BOLD}warning${NC} $1"
+    local msg="$1"
+    echo -e "${YELLOW}${BOLD}warning${NC} ${msg}"
 }
 
 error() {
-    echo -e "${RED}${BOLD}error${NC} $1" >&2
+    local msg="$1"
+    echo -e "${RED}${BOLD}error${NC} ${msg}" >&2
 }
 
 step() {
-    echo -e "\n${CYAN}${BOLD}→${NC} $1"
+    local msg="$1"
+    echo -e "\n${CYAN}${BOLD}→${NC} ${msg}"
 }
 
 dim() {
-    echo -e "${DIM}$1${NC}"
+    local msg="$1"
+    echo -e "${DIM}${msg}${NC}"
 }
 
 usage() {
@@ -290,6 +296,10 @@ install_sqlite3_cli() {
         dnf)  dnf install -y -q sqlite > /dev/null 2>&1 ;;
         apk)  apk add --quiet sqlite > /dev/null 2>&1 ;;
         pacman) pacman -S --noconfirm --quiet sqlite > /dev/null 2>&1 ;;
+        *)
+            warn "Unknown package manager: ${pkg_manager} — skipping sqlite3 install"
+            return 0
+            ;;
     esac
 
     if command -v sqlite3 &> /dev/null; then
@@ -488,7 +498,8 @@ main() {
     WAS_RUNNING=false
 
     while [[ $# -gt 0 ]]; do
-        case "$1" in
+        local arg="$1"
+        case "$arg" in
             --local)
                 if [[ $# -lt 2 ]]; then
                     error "--local requires a path argument"
@@ -499,7 +510,7 @@ main() {
                 shift 2
                 ;;
             --local=*)
-                local_binary="${1#*=}"
+                local_binary="${arg#*=}"
                 shift
                 ;;
             --help|-h)
@@ -511,7 +522,7 @@ main() {
                 shift
                 ;;
             *)
-                error "Unknown option: $1"
+                error "Unknown option: ${arg}"
                 usage
                 exit 1
                 ;;
