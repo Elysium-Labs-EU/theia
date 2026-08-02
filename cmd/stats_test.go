@@ -28,10 +28,17 @@ func setupCmdTestDB(t *testing.T) (*sql.DB, string) {
 	return db, dbPath
 }
 
-func insertStat(t *testing.T, db *sql.DB, path, host string, ts time.Time, pageViews, uniqueVisitors, botViews int, isStatic bool) {
+type statSeed struct {
+	PageViews      int
+	UniqueVisitors int
+	BotViews       int
+	IsStatic       bool
+}
+
+func insertStat(t *testing.T, db *sql.DB, path, host string, ts time.Time, s statSeed) {
 	t.Helper()
 	staticInt := 0
-	if isStatic {
+	if s.IsStatic {
 		staticInt = 1
 	}
 	_, err := db.ExecContext(t.Context(), `
@@ -41,14 +48,14 @@ func insertStat(t *testing.T, db *sql.DB, path, host string, ts time.Time, pageV
 			page_views = page_views + ?,
 			bot_views = bot_views + ?`,
 		ts.Hour(), ts.YearDay(), ts.Year(), path, host,
-		pageViews, staticInt, botViews,
-		pageViews, botViews,
+		s.PageViews, staticInt, s.BotViews,
+		s.PageViews, s.BotViews,
 	)
 	if err != nil {
 		t.Fatalf("insert hourly stat: %v", err)
 	}
 
-	insertDistinctVisitorDays(t, db, path, host, ts, uniqueVisitors)
+	insertDistinctVisitorDays(t, db, path, host, ts, s.UniqueVisitors)
 }
 
 // insertDistinctVisitorDays seeds visitor_days with N distinct hashes for the given
@@ -83,9 +90,9 @@ func TestCollectStats(t *testing.T) {
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
 	now := time.Now()
-	insertStat(t, db, "/", "example.com", now, 5, 3, 1, false)
-	insertStat(t, db, "/about", "example.com", now, 3, 2, 0, false)
-	insertStat(t, db, "/style.css", "example.com", now, 100, 50, 0, true)
+	insertStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 1})
+	insertStat(t, db, "/about", "example.com", now, statSeed{PageViews: 3, UniqueVisitors: 2, BotViews: 0})
+	insertStat(t, db, "/style.css", "example.com", now, statSeed{PageViews: 100, UniqueVisitors: 50, BotViews: 0, IsStatic: true})
 
 	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), "", 10)
 	if err != nil {
@@ -111,8 +118,8 @@ func TestCollectStats_HostFilter(t *testing.T) {
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
 	now := time.Now()
-	insertStat(t, db, "/", "example.com", now, 5, 3, 0, false)
-	insertStat(t, db, "/", "other.com", now, 10, 7, 0, false)
+	insertStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 0})
+	insertStat(t, db, "/", "other.com", now, statSeed{PageViews: 10, UniqueVisitors: 7, BotViews: 0})
 
 	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), "example.com", 10)
 	if err != nil {
@@ -200,7 +207,7 @@ func TestRenderJSON(t *testing.T) {
 func TestStatsCmd_TableFormat(t *testing.T) {
 	db, dbPath := setupCmdTestDB(t)
 	now := time.Now()
-	insertStat(t, db, "/", "example.com", now, 10, 5, 0, false)
+	insertStat(t, db, "/", "example.com", now, statSeed{PageViews: 10, UniqueVisitors: 5, BotViews: 0})
 	database.Close(db) //nolint:errcheck // close before command reopens the same file
 
 	cmd := newStatsCmd()
@@ -225,7 +232,7 @@ func TestStatsCmd_TableFormat(t *testing.T) {
 func TestStatsCmd_JSONFormat(t *testing.T) {
 	db, dbPath := setupCmdTestDB(t)
 	now := time.Now()
-	insertStat(t, db, "/", "example.com", now, 7, 3, 0, false)
+	insertStat(t, db, "/", "example.com", now, statSeed{PageViews: 7, UniqueVisitors: 3, BotViews: 0})
 	database.Close(db) //nolint:errcheck // close before command reopens the same file
 
 	cmd := newStatsCmd()

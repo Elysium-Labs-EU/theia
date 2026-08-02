@@ -36,10 +36,17 @@ func setupTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func insertHourlyStat(t *testing.T, db *sql.DB, path, host string, ts time.Time, pageViews, uniqueVisitors, botViews int, isStatic bool) {
+type statSeed struct {
+	PageViews      int
+	UniqueVisitors int
+	BotViews       int
+	IsStatic       bool
+}
+
+func insertHourlyStat(t *testing.T, db *sql.DB, path, host string, ts time.Time, s statSeed) {
 	t.Helper()
 	staticInt := 0
-	if isStatic {
+	if s.IsStatic {
 		staticInt = 1
 	}
 	_, err := db.ExecContext(t.Context(), `
@@ -49,14 +56,14 @@ func insertHourlyStat(t *testing.T, db *sql.DB, path, host string, ts time.Time,
 			page_views = page_views + ?,
 			bot_views = bot_views + ?`,
 		ts.Hour(), ts.YearDay(), ts.Year(), path, host,
-		pageViews, staticInt, botViews,
-		pageViews, botViews,
+		s.PageViews, staticInt, s.BotViews,
+		s.PageViews, s.BotViews,
 	)
 	if err != nil {
 		t.Fatalf("insert hourly stat: %v", err)
 	}
 
-	insertDistinctVisitorDays(t, db, path, host, ts, uniqueVisitors)
+	insertDistinctVisitorDays(t, db, path, host, ts, s.UniqueVisitors)
 }
 
 // insertDistinctVisitorDays seeds visitor_days with N distinct hashes for the given
@@ -112,9 +119,9 @@ func TestGetSummary(t *testing.T) {
 	now := time.Now()
 	old := now.AddDate(0, 0, -10)
 
-	insertHourlyStat(t, db, "/", "example.com", now, 5, 3, 1, false)
-	insertHourlyStat(t, db, "/about", "example.com", now, 3, 2, 0, false)
-	insertHourlyStat(t, db, "/old", "example.com", old, 100, 50, 10, false)
+	insertHourlyStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 1})
+	insertHourlyStat(t, db, "/about", "example.com", now, statSeed{PageViews: 3, UniqueVisitors: 2, BotViews: 0})
+	insertHourlyStat(t, db, "/old", "example.com", old, statSeed{PageViews: 100, UniqueVisitors: 50, BotViews: 10})
 
 	since := now.AddDate(0, 0, -7)
 	got, err := query.GetSummary(ctx, db, since, "")
@@ -140,8 +147,8 @@ func TestGetSummaryHostFilter(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	insertHourlyStat(t, db, "/", "example.com", now, 5, 3, 0, false)
-	insertHourlyStat(t, db, "/", "other.com", now, 10, 7, 0, false)
+	insertHourlyStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 0})
+	insertHourlyStat(t, db, "/", "other.com", now, statSeed{PageViews: 10, UniqueVisitors: 7, BotViews: 0})
 
 	since := now.AddDate(0, 0, -7)
 	got, err := query.GetSummary(ctx, db, since, "example.com")
@@ -177,9 +184,9 @@ func TestGetTopPaths(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	insertHourlyStat(t, db, "/about", "example.com", now, 3, 2, 0, false)
-	insertHourlyStat(t, db, "/", "example.com", now, 10, 5, 0, false)
-	insertHourlyStat(t, db, "/style.css", "example.com", now, 50, 20, 0, true)
+	insertHourlyStat(t, db, "/about", "example.com", now, statSeed{PageViews: 3, UniqueVisitors: 2, BotViews: 0})
+	insertHourlyStat(t, db, "/", "example.com", now, statSeed{PageViews: 10, UniqueVisitors: 5, BotViews: 0})
+	insertHourlyStat(t, db, "/style.css", "example.com", now, statSeed{PageViews: 50, UniqueVisitors: 20, BotViews: 0, IsStatic: true})
 
 	since := now.AddDate(0, 0, -7)
 	paths, err := query.GetTopPaths(ctx, db, since, "", 10)
@@ -206,7 +213,7 @@ func TestGetTopPathsLimit(t *testing.T) {
 	now := time.Now()
 
 	for i := range 5 {
-		insertHourlyStat(t, db, fmt.Sprintf("/page%d", i), "example.com", now, i+1, 1, 0, false)
+		insertHourlyStat(t, db, fmt.Sprintf("/page%d", i), "example.com", now, statSeed{PageViews: i + 1, UniqueVisitors: 1})
 	}
 
 	since := now.AddDate(0, 0, -7)
@@ -340,9 +347,9 @@ func TestGetSeriesByDay(t *testing.T) {
 	yesterday := today.AddDate(0, 0, -1)
 	outOfRange := today.AddDate(0, 0, -10)
 
-	insertHourlyStat(t, db, "/", "example.com", today, 5, 3, 1, false)
-	insertHourlyStat(t, db, "/", "example.com", yesterday, 2, 1, 0, false)
-	insertHourlyStat(t, db, "/", "example.com", outOfRange, 100, 50, 0, false)
+	insertHourlyStat(t, db, "/", "example.com", today, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 1})
+	insertHourlyStat(t, db, "/", "example.com", yesterday, statSeed{PageViews: 2, UniqueVisitors: 1, BotViews: 0})
+	insertHourlyStat(t, db, "/", "example.com", outOfRange, statSeed{PageViews: 100, UniqueVisitors: 50, BotViews: 0})
 
 	from := today.AddDate(0, 0, -2)
 	series, err := query.GetSeries(ctx, db, from, today, "", "day")
@@ -374,8 +381,8 @@ func TestGetSeriesByDay_HostFilter(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	insertHourlyStat(t, db, "/", "example.com", now, 5, 3, 0, false)
-	insertHourlyStat(t, db, "/", "other.com", now, 10, 7, 0, false)
+	insertHourlyStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 0})
+	insertHourlyStat(t, db, "/", "other.com", now, statSeed{PageViews: 10, UniqueVisitors: 7, BotViews: 0})
 
 	series, err := query.GetSeries(ctx, db, now.AddDate(0, 0, -1), now, "example.com", "day")
 	if err != nil {
@@ -393,7 +400,7 @@ func TestGetSeriesByHour(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	insertHourlyStat(t, db, "/", "example.com", now, 5, 3, 1, false)
+	insertHourlyStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 1})
 
 	series, err := query.GetSeries(ctx, db, now.AddDate(0, 0, -1), now, "", "hour")
 	if err != nil {
@@ -434,8 +441,8 @@ func TestGetTopPathsRange_ExcludesOutOfRange(t *testing.T) {
 	now := time.Now()
 	outOfRange := now.AddDate(0, 0, -30)
 
-	insertHourlyStat(t, db, "/in-range", "example.com", now, 5, 3, 0, false)
-	insertHourlyStat(t, db, "/old", "example.com", outOfRange, 99, 1, 0, false)
+	insertHourlyStat(t, db, "/in-range", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 0})
+	insertHourlyStat(t, db, "/old", "example.com", outOfRange, statSeed{PageViews: 99, UniqueVisitors: 1, BotViews: 0})
 
 	paths, err := query.GetTopPathsRange(ctx, db, now.AddDate(0, 0, -7), now, "", 10)
 	if err != nil {
