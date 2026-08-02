@@ -28,7 +28,7 @@ jobs:
       # the scanner from source on every run (the real slowness).
       - name: Install osv-scanner (prebuilt, pinned)
         run: |
-          curl -sSfL "https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64" -o osv-scanner
+          curl -sSfL --proto '=https' --tlsv1.2 "https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64" -o osv-scanner
           chmod +x osv-scanner
           ./osv-scanner --version
 
