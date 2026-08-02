@@ -75,7 +75,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install nilaway
-        run: go install go.uber.org/nilaway/cmd/nilaway@latest
+        run: go install go.uber.org/nilaway/cmd/nilaway@3e5f45c73e8573f442c8f8f7178480da57bd3fef # main, no tagged releases
 
       - name: Run nilcheck
         run: nilaway ./...
@@ -95,7 +95,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install go-crap
-        run: go install github.com/padiazg/go-crap@latest
+        run: go install github.com/padiazg/go-crap@eafaa809d9a128b98cb9786aa498f56a04c79bd9 # v0.5.0
 
       - name: Run crap gate
         run: make crap
