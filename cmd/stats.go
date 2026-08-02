@@ -16,6 +16,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const noDataLabel = "  (no data)"
+
 //nolint:govet // fieldalignment: JSON output field order follows struct order; reordering would change the rendered output
 type statsReport struct {
 	Summary      query.Summary        `json:"summary"`
@@ -175,7 +177,7 @@ func renderTable(cmd *cobra.Command, r *statsReport, days int, host string) erro
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Top Paths")
 	if len(r.TopPaths) == 0 {
-		_, _ = fmt.Fprintln(w, "  (no data)")
+		_, _ = fmt.Fprintln(w, noDataLabel)
 	} else {
 		_, _ = fmt.Fprintln(w, "  PATH\tHOST\tPAGEVIEWS")
 		for _, p := range r.TopPaths {
@@ -186,7 +188,7 @@ func renderTable(cmd *cobra.Command, r *statsReport, days int, host string) erro
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Status Codes")
 	if len(r.StatusCodes) == 0 {
-		_, _ = fmt.Fprintln(w, "  (no data)")
+		_, _ = fmt.Fprintln(w, noDataLabel)
 	} else {
 		_, _ = fmt.Fprintln(w, "  CODE\tCOUNT")
 		for _, s := range r.StatusCodes {
@@ -197,7 +199,7 @@ func renderTable(cmd *cobra.Command, r *statsReport, days int, host string) erro
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Top Referrers")
 	if len(r.TopReferrers) == 0 {
-		_, _ = fmt.Fprintln(w, "  (no data)")
+		_, _ = fmt.Fprintln(w, noDataLabel)
 	} else {
 		_, _ = fmt.Fprintln(w, "  REFERRER\tCOUNT")
 		for _, ref := range r.TopReferrers {
