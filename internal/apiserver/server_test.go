@@ -34,7 +34,13 @@ func setupTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func insertHourlyStat(t *testing.T, db *sql.DB, path, host string, ts time.Time, pageViews, uniqueVisitors, botViews int) {
+type statSeed struct {
+	PageViews      int
+	UniqueVisitors int
+	BotViews       int
+}
+
+func insertHourlyStat(t *testing.T, db *sql.DB, path, host string, ts time.Time, s statSeed) {
 	t.Helper()
 	_, err := db.ExecContext(t.Context(), `
 		INSERT INTO hourly_stats (hour, year_day, year, path, host, page_views, is_static, bot_views)
@@ -43,14 +49,14 @@ func insertHourlyStat(t *testing.T, db *sql.DB, path, host string, ts time.Time,
 			page_views = page_views + ?,
 			bot_views = bot_views + ?`,
 		ts.Hour(), ts.YearDay(), ts.Year(), path, host,
-		pageViews, botViews,
-		pageViews, botViews,
+		s.PageViews, s.BotViews,
+		s.PageViews, s.BotViews,
 	)
 	if err != nil {
 		t.Fatalf("insert hourly stat: %v", err)
 	}
 
-	for i := range uniqueVisitors {
+	for i := range s.UniqueVisitors {
 		hash := path + host + string(rune('a'+i))
 		_, err := db.ExecContext(t.Context(), `
 			INSERT INTO visitor_days (hash, host, year, year_day, first_seen)
@@ -124,7 +130,7 @@ func TestStats_Unauthorized(t *testing.T) {
 func TestStats_JSON(t *testing.T) {
 	db := setupTestDB(t)
 	now := time.Now()
-	insertHourlyStat(t, db, "/", "example.com", now, 5, 3, 1)
+	insertHourlyStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 1})
 
 	srv := apiserver.NewServer(db, apiserver.Config{Token: testToken})
 	rec := doRequest(t, srv.Handler, "/api/v1/stats?host=example.com", testToken)
@@ -166,8 +172,8 @@ func TestStats_JSON(t *testing.T) {
 func TestStats_HostFilter(t *testing.T) {
 	db := setupTestDB(t)
 	now := time.Now()
-	insertHourlyStat(t, db, "/", "example.com", now, 5, 3, 0)
-	insertHourlyStat(t, db, "/", "other.com", now, 10, 7, 0)
+	insertHourlyStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 0})
+	insertHourlyStat(t, db, "/", "other.com", now, statSeed{PageViews: 10, UniqueVisitors: 7, BotViews: 0})
 
 	srv := apiserver.NewServer(db, apiserver.Config{Token: testToken})
 	rec := doRequest(t, srv.Handler, "/api/v1/stats?host=other.com", testToken)
@@ -192,7 +198,7 @@ func TestStats_HostFilter(t *testing.T) {
 func TestStats_CSV(t *testing.T) {
 	db := setupTestDB(t)
 	now := time.Now()
-	insertHourlyStat(t, db, "/", "example.com", now, 5, 3, 1)
+	insertHourlyStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 1})
 
 	srv := apiserver.NewServer(db, apiserver.Config{Token: testToken})
 	rec := doRequest(t, srv.Handler, "/api/v1/stats?format=csv", testToken)
@@ -245,8 +251,8 @@ func TestStats_BadParams(t *testing.T) {
 func TestPaths_JSON(t *testing.T) {
 	db := setupTestDB(t)
 	now := time.Now()
-	insertHourlyStat(t, db, "/", "example.com", now, 10, 5, 0)
-	insertHourlyStat(t, db, "/about", "example.com", now, 3, 1, 0)
+	insertHourlyStat(t, db, "/", "example.com", now, statSeed{PageViews: 10, UniqueVisitors: 5, BotViews: 0})
+	insertHourlyStat(t, db, "/about", "example.com", now, statSeed{PageViews: 3, UniqueVisitors: 1, BotViews: 0})
 
 	srv := apiserver.NewServer(db, apiserver.Config{Token: testToken})
 	rec := doRequest(t, srv.Handler, "/api/v1/stats/paths?top=1", testToken)
