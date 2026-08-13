@@ -9,7 +9,15 @@ pre-commit:
       # `go run`, so local lint is byte-identical to CI regardless of what's on PATH.
       # Prevents version-drift false failures (e.g. G115) that tempt `git commit --no-verify`.
       # Keep this version in sync with the one in the Makefile `setup` target.
-      run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.0 run --timeout=5m
+      #
+      # GOLANGCI_LINT_CACHE is set inline rather than inherited from the Makefile:
+      # this runs the linter directly, so the Makefile's export never reaches it.
+      # Without it the run falls back to the one shared per-user cache, which is
+      # keyed on file content - identical sources in two worktrees collide and one
+      # tree is served the other's stored findings. That matters most here, since
+      # this hook decides whether a commit is allowed. show-toplevel resolves to
+      # the linked worktree's own root, so each tree isolates itself.
+      run: GOLANGCI_LINT_CACHE="$(git rev-parse --show-toplevel)/.cache/golangci-lint" go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.0 run --timeout=5m
 
     - name: tests
       run: go test . ./database -v

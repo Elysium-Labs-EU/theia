@@ -12,6 +12,16 @@ BINARY_NAME=theia
 GOBIN=./bin
 INSTALL_PATH=~/.local/bin
 
+# golangci-lint's cache defaults to one shared directory per user and keys
+# entries on file content. Two worktrees of this repo hold identical sources,
+# so their keys collide and one tree is served the other's stored findings,
+# carrying the paths recorded when they were first analysed. Keeping the cache
+# in the worktree makes collision impossible and needs no reaping, since it is
+# removed with the tree that owns it. lefthook sets this inline too - it
+# invokes golangci-lint directly, so this export never reaches it. Must be
+# absolute; $(CURDIR) is.
+export GOLANGCI_LINT_CACHE := $(CURDIR)/.cache/golangci-lint
+
 setup: ## Install dev tools (golangci-lint, nilaway, go-crap) and git hooks
 	@echo "Installing golangci-lint v2.11.0..."
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v2.11.0
@@ -208,7 +218,7 @@ test-install-remote: ## Test remote install.sh in VPS simulator
 
 clean: ## Remove build artifacts and clean Docker resources
 	@echo "Cleaning..."
-	rm -rf $(GOBIN) dist/
+	rm -rf $(GOBIN) dist/ $(GOLANGCI_LINT_CACHE)
 	@$(MAKE) docker-clean
 	go clean
 	@echo "Cleaned"
