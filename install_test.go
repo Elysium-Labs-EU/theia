@@ -183,3 +183,35 @@ func TestFetchLatestVersionAllPrereleaseFallback(t *testing.T) {
 		t.Errorf("fetch_latest_version = %q, want the highest prerelease %q", out, "v0.1.0-rc.2")
 	}
 }
+
+// TestMakeStagingDirIsRemovedOnExit is the regression test for the staging
+// dir surviving every install: the EXIT trap that removes it runs after the
+// function that registered it has returned, so a `local tmp_dir` binding is
+// already gone and the trap cleans up nothing. The bash process is what
+// exits here, so the assertion has to happen after it does — checking from
+// inside the script would pass either way.
+func TestMakeStagingDirIsRemovedOnExit(t *testing.T) {
+	out, err := runInstallFunc(t, `make_staging_dir; printf '%s' "$tmp_dir"`, nil)
+	if err != nil {
+		t.Fatalf("make_staging_dir failed: %v\n%s", err, out)
+	}
+	if out == "" {
+		t.Fatal("make_staging_dir set no tmp_dir")
+	}
+	if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
+		t.Errorf("staging dir %q still exists after the script exited (stat error: %v)", out, statErr)
+	}
+}
+
+// TestMakeStagingDirIsUsable guards the other half of the trap trade-off:
+// the dir has to survive long enough to download into. A trap registered in
+// a command-substitution subshell would fire immediately and delete it.
+func TestMakeStagingDirIsUsable(t *testing.T) {
+	out, err := runInstallFunc(t, `make_staging_dir; touch "${tmp_dir}/probe" && [ -f "${tmp_dir}/probe" ] && printf ok`, nil)
+	if err != nil {
+		t.Fatalf("writing into the staging dir failed: %v\n%s", err, out)
+	}
+	if out != "ok" {
+		t.Errorf("staging dir not writable while the script runs: %q", out)
+	}
+}
