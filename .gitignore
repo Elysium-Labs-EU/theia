@@ -38,11 +38,18 @@ NOTES.md
 TODO.MD
 test-files*/*
 logs/*
-theia
+# Anchored: unanchored `theia` also matched any directory of that name at any depth.
+# It also happened to hide the build output in bin/, which now needs its own rule.
+/theia
+/bin/
 *.db
 .zed/
 .claude/
-AGENTS.md
+CLAUDE.local.md
+
+# Local code-intelligence index. A git worktree gets this as a symlink to the
+# original checkout's copy, and a trailing slash would not match that.
+.gitnexus
 
 # golangci-lint cache, kept per worktree so sibling trees cannot serve each
 # other stale findings (see GOLANGCI_LINT_CACHE in the Makefile)
