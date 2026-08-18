@@ -133,11 +133,11 @@ func runInteractiveCompletion(cmd, root *cobra.Command) error {
 		return err
 	}
 
-	cmd.Printf("\n  Detected shell: %s\n\n", shell)
+	cmd.Printf("\n  %s %s\n\n", ui.TextMuted.Render("Detected shell:"), ui.TextBold.Render(shell))
 
 	reader := bufio.NewReader(cmd.InOrStdin())
 	if !ui.Confirm(reader, cmd.OutOrStdout(), fmt.Sprintf("Install tab completion for %s?", shell), false) {
-		cmd.Printf("\n  Skipped. Run 'theia completion %s' to print the script manually.\n\n", shell)
+		cmd.Printf("\n  %s\n\n", ui.TextMuted.Render("Skipped. Run 'theia completion "+shell+"' to print the script manually."))
 		return nil
 	}
 
@@ -145,18 +145,18 @@ func runInteractiveCompletion(cmd, root *cobra.Command) error {
 		return fmt.Errorf("writing completion script: %w", err)
 	}
 
-	cmd.Printf("\n  installed -> %s\n", targetPath)
+	cmd.Printf("\n  %s %s\n", ui.LabelSuccess.Render("installed →"), ui.TextCommand.Render(targetPath))
 
 	if shell == "zsh" {
 		if patched, patchErr := patchZshrc(filepath.Dir(targetPath)); patchErr != nil {
-			cmd.Printf("  could not patch ~/.zshrc: %s\n", patchErr.Error())
+			cmd.Printf("  %s %s\n", ui.LabelError.Render("could not patch ~/.zshrc:"), patchErr.Error())
 		} else if patched {
-			cmd.Printf("  patched -> ~/.zshrc\n")
+			cmd.Printf("  %s %s\n", ui.LabelSuccess.Render("patched →"), ui.TextCommand.Render("~/.zshrc"))
 		} else {
-			cmd.Printf("  ~/.zshrc already has fpath entry — no change\n")
+			cmd.Printf("  %s\n", ui.TextMuted.Render("~/.zshrc already has fpath entry — no change"))
 		}
 	}
-	cmd.Printf("  reload shell: exec $SHELL\n\n")
+	cmd.Printf("  %s %s\n\n", ui.TextMuted.Render("reload shell:"), ui.TextCommand.Render("exec $SHELL"))
 
 	return nil
 }
