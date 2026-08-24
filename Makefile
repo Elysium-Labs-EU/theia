@@ -21,10 +21,15 @@ INSTALL_PATH=~/.local/bin
 # invokes golangci-lint directly, so this export never reaches it. Must be
 # absolute; $(CURDIR) is.
 export GOLANGCI_LINT_CACHE := $(CURDIR)/.cache/golangci-lint
+# Single source of truth for the golangci-lint pin: lint, fix, the pre-commit
+# hook (lefthook.yml) and the golangci-lint workflow all read this file so
+# none of them can drift to whatever golangci-lint happens to resolve to on
+# PATH.
+GOLANGCI_LINT_VERSION := $(shell cat .golangci-lint-version)
 
 setup: ## Install dev tools (golangci-lint, nilaway, go-crap) and git hooks
-	@echo "Installing golangci-lint v2.11.0..."
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v2.11.0
+	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@echo "Installing nilaway (nil pointer static analysis)..."
 	go install go.uber.org/nilaway/cmd/nilaway@latest
 	@echo "Installing go-crap (CRAP score analysis)..."
@@ -73,16 +78,18 @@ test-coverage-check: ## Fail if total coverage is below COVERAGE_THRESHOLD
 	awk -v total="$${total}" -v threshold="$(COVERAGE_THRESHOLD)" \
 		'BEGIN { if (total+0 < threshold+0) { print "Coverage " total "% below threshold " threshold "%"; exit 1 } }'
 
-lint: check-pubkey-sync ## Run all linters
+lint: check-pubkey-sync ## Run all linters (always the pinned $(GOLANGCI_LINT_VERSION), regardless of what's on PATH)
 	@echo "Running linters..."
-	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not found. Install: https://golangci-lint.run/welcome/install/"; exit 1; }
-	golangci-lint run --timeout=5m
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run --timeout=5m
 
 check-pubkey-sync: ## Fail if the release signing public key in cmd/update.go and install.sh have drifted apart
 	@sh scripts/check-pubkey-sync.sh
 
 check-file-size: ## Fail if a changed file vs origin/main is oversized or an LFS pointer
 	@bash scripts/check-file-size.sh
+
+check-golangci-pin: ## Fail if the golangci-lint version has drifted from .golangci-lint-version anywhere
+	@bash scripts/check-golangci-pin.sh
 
 nilcheck: ## Static nil-pointer safety analysis (requires: go install go.uber.org/nilaway/cmd/nilaway@latest)
 	@echo "Running nilaway nil pointer analysis..."
@@ -112,7 +119,7 @@ leak-test: ## Run tests with goroutine leak detection
 	go test ./... -count=1 -timeout=60s -v 2>&1 | grep -E "(PASS|FAIL|leak|goroutine)" || true
 
 fix: ## Fix go formatting
-	golangci-lint fmt
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) fmt
 	go run golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest -fix ./...
 
 ci: ## Run all CI checks locally (runs all, reports all failures)
@@ -124,6 +131,7 @@ ci: ## Run all CI checks locally (runs all, reports all failures)
 	$(MAKE) govulncheck || failed=1; \
 	$(MAKE) secrets || failed=1; \
 	$(MAKE) check-file-size || failed=1; \
+	$(MAKE) check-golangci-pin || failed=1; \
 	if [ $$failed -ne 0 ]; then echo "CI checks FAILED"; exit 1; fi; \
 	echo "All CI checks passed!"
 
