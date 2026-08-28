@@ -44,8 +44,13 @@ logs/*
 /bin/
 *.db
 .zed/
-.claude/
 CLAUDE.local.md
+
+# Claude Code local/runtime state, not shared repo config
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/argus/
+.claude/worktrees/
 
 # Local code-intelligence index. A git worktree gets this as a symlink to the
 # original checkout's copy, and a trailing slash would not match that.
