@@ -1,4 +1,4 @@
-.PHONY: help list dev build install test lint check-pubkey-sync check-file-size check-golangci-pin check-action-pins nilcheck crap govulncheck secrets leak-test clean docker-* test-docker-* changelog changelog-preview release release-prepare release-local fix setup
+.PHONY: help list dev build install test lint check-pubkey-sync check-file-size check-arrow-notation check-golangci-pin check-action-pins nilcheck crap govulncheck secrets leak-test clean docker-* test-docker-* changelog changelog-preview release release-prepare release-local fix setup
 .DEFAULT_GOAL := help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -90,6 +90,9 @@ check-pubkey-sync: ## Fail if the release signing public key in cmd/update.go an
 check-file-size: ## Fail if a changed file vs origin/main is oversized or an LFS pointer
 	@bash scripts/check-file-size.sh
 
+check-arrow-notation: ## Fail if markdown prose uses arrow notation (ASCII ->/<- or HTML entities)
+	@bash scripts/check-arrow-notation.sh
+
 check-golangci-pin: ## Fail if the golangci-lint version has drifted from .golangci-lint-version anywhere
 	@bash scripts/check-golangci-pin.sh
 
@@ -136,6 +139,7 @@ ci: ## Run all CI checks locally (runs all, reports all failures)
 	$(MAKE) govulncheck || failed=1; \
 	$(MAKE) secrets || failed=1; \
 	$(MAKE) check-file-size || failed=1; \
+	$(MAKE) check-arrow-notation || failed=1; \
 	$(MAKE) check-golangci-pin || failed=1; \
 	$(MAKE) check-action-pins || failed=1; \
 	if [ $$failed -ne 0 ]; then echo "CI checks FAILED"; exit 1; fi; \
