@@ -1,4 +1,4 @@
-.PHONY: help list dev build install test lint check-pubkey-sync check-file-size check-golangci-pin check-action-pins nilcheck crap govulncheck secrets leak-test clean docker-* test-docker-* release release-local fix setup
+.PHONY: help list dev build install test lint check-pubkey-sync check-file-size check-golangci-pin check-action-pins nilcheck crap govulncheck secrets leak-test clean docker-* test-docker-* changelog changelog-preview release release-prepare release-local fix setup
 .DEFAULT_GOAL := help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -27,7 +27,7 @@ export GOLANGCI_LINT_CACHE := $(CURDIR)/.cache/golangci-lint
 # PATH.
 GOLANGCI_LINT_VERSION := $(shell cat .golangci-lint-version)
 
-setup: ## Install dev tools (golangci-lint, nilaway, go-crap) and git hooks
+setup: ## Install dev tools (golangci-lint, nilaway, go-crap, git-cliff) and git hooks
 	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@echo "Installing nilaway (nil pointer static analysis)..."
@@ -38,6 +38,8 @@ setup: ## Install dev tools (golangci-lint, nilaway, go-crap) and git hooks
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	@echo "Installing gitleaks..."
 	go install github.com/zricethezav/gitleaks/v8@latest
+	@echo "Installing git-cliff (changelog generation)..."
+	@command -v cargo >/dev/null 2>&1 && cargo install git-cliff || echo "cargo not found — install git-cliff manually: https://git-cliff.org/docs/installation"
 	@echo "Setup complete."
 
 help: ## Show this help
@@ -202,7 +204,23 @@ release-local: ## Build release binaries locally
 	@echo "Release binaries built in ./dist/"
 	@ls -lh dist/
 
-release: ## Tag and push a release
+changelog: ## Generate CHANGELOG.md from git history
+	@command -v git-cliff >/dev/null 2>&1 || { echo "git-cliff not found. Install: https://git-cliff.org/docs/installation"; exit 1; }
+	git cliff --output CHANGELOG.md
+
+changelog-preview: ## Preview unreleased changes (does not write to file)
+	@command -v git-cliff >/dev/null 2>&1 || { echo "git-cliff not found. Install: https://git-cliff.org/docs/installation"; exit 1; }
+	git cliff --unreleased
+
+release-prepare: ## Regenerate the changelog for a tag and commit it locally (main is protected — push this branch and merge it via PR before running 'release')
+	@if [ -z "$(TAG)" ]; then echo "Usage: make release-prepare TAG=v1.2.0"; exit 1; fi
+	@command -v git-cliff >/dev/null 2>&1 || { echo "git-cliff not found. Install: https://git-cliff.org/docs/installation"; exit 1; }
+	git cliff --tag $(TAG) --output CHANGELOG.md
+	git add CHANGELOG.md
+	git diff --cached --quiet CHANGELOG.md || git commit -m "chore: update changelog for $(TAG)"
+	@echo "CHANGELOG.md updated for $(TAG). Push this branch, open a PR against main, and merge it before running 'make release TAG=$(TAG)'."
+
+release: ## Tag and push a release (run on main after the release-prepare changelog PR is merged)
 	@if [ -z "$(TAG)" ]; then echo "Usage: make release TAG=v1.2.0"; exit 1; fi
 	git tag -a $(TAG) -m "Release $(TAG)"
 	git push origin $(TAG)
