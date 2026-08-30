@@ -7,6 +7,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// defaultDBPath and defaultLogPath are daemon's own flag defaults — diagnose.go
+// reuses them as its last-resort "default-guess" fallback so the two can't
+// silently drift apart.
+const (
+	defaultDBPath  = "./theia.db"
+	defaultLogPath = "/var/log/nginx/access.log"
+)
+
 func newDaemonCmd() *cobra.Command {
 	daemonCmd := &cobra.Command{
 		Use:   "daemon",
@@ -37,8 +45,8 @@ Example:
 		},
 	}
 
-	daemonCmd.Flags().String("db-path", "./theia.db", "path to the sqlite database")
-	daemonCmd.Flags().String("log-path", "/var/log/nginx/access.log", "path to the nginx access log")
+	daemonCmd.Flags().String("db-path", defaultDBPath, "path to the sqlite database")
+	daemonCmd.Flags().String("log-path", defaultLogPath, "path to the nginx access log")
 
 	return daemonCmd
 }
