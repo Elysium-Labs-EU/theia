@@ -35,6 +35,7 @@ No client-side JavaScript required, making it resistant to ad-blockers.`, buildi
 	rootCmd.AddCommand(newServeCmd())
 	rootCmd.AddCommand(newServeMetricsCmd())
 	rootCmd.AddCommand(newSystemCmd())
+	rootCmd.AddCommand(newDiagnoseCmd())
 	rootCmd.AddCommand(newCompletionCmd(rootCmd))
 
 	return rootCmd

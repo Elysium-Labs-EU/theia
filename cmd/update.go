@@ -42,12 +42,21 @@ var systemctlCandidates = []string{"/usr/bin/systemctl", "/bin/systemctl"}
 // whose exec failure (rather than a PATH-search substitution) is what
 // surfaces on non-systemd hosts.
 func systemctlPath() string {
-	for _, p := range systemctlCandidates {
+	return firstExistingCandidate(systemctlCandidates)
+}
+
+// firstExistingCandidate returns the first path in candidates that exists on
+// disk, or the last candidate if none do — shared by every caller that
+// resolves a trusted system binary from a fixed, root-owned candidate list
+// rather than a bare name through exec.LookPath's PATH search (see
+// systemctlCandidates's doc comment for why). candidates must be non-empty.
+func firstExistingCandidate(candidates []string) string {
+	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
 	}
-	return systemctlCandidates[len(systemctlCandidates)-1]
+	return candidates[len(candidates)-1]
 }
 
 var httpClient = &http.Client{
