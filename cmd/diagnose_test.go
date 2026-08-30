@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,6 +153,57 @@ func TestDiagnoseCollectDB_PartialTableFailureKeepsOthers(t *testing.T) {
 	}
 }
 
+func TestDiagnoseSplitLines(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{"\n\n", nil},
+		{"one line", []string{"one line"}},
+		{"a\nb\nc\n", []string{"a", "b", "c"}},
+	}
+	for _, tt := range tests {
+		got := diagnoseSplitLines(tt.in)
+		if len(got) != len(tt.want) {
+			t.Errorf("diagnoseSplitLines(%q) = %v, want %v", tt.in, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("diagnoseSplitLines(%q) = %v, want %v", tt.in, got, tt.want)
+				break
+			}
+		}
+	}
+}
+
+func TestDiagnoseScrubLines(t *testing.T) {
+	got := diagnoseScrubLines([]string{"opening /Users/alice/theia.db", "nothing sensitive"})
+	want := []string{"opening <redacted-path>", "nothing sensitive"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("diagnoseScrubLines()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestDiagnoseCollectDaemonLog_JournalctlUnavailable(t *testing.T) {
+	// This test suite runs on macOS/CI hosts with no journalctl binary, so
+	// diagnoseCollectDaemonLog must degrade to a non-fatal, non-panicking
+	// step rather than assume a Linux host.
+	file, step := diagnoseCollectDaemonLog(t.Context(), diagnoseOptions{Since: time.Minute, Lines: 10})
+	if _, err := os.Stat(journalctlPath()); err == nil {
+		t.Skip("journalctl is present on this host; this test targets the unavailable path")
+	}
+	if step.Captured {
+		t.Errorf("expected a non-captured step when journalctl is unavailable, got %+v", step)
+	}
+	if file != nil {
+		t.Errorf("expected no file when journalctl is unavailable, got %+v", file)
+	}
+}
+
 func TestDiagnoseScrubLine(t *testing.T) {
 	tests := []struct {
 		in   string
@@ -244,6 +297,99 @@ func TestDiagnoseWriteBundle(t *testing.T) {
 	}
 	if len(got.Steps) != 1 || got.Steps[0].Name != "version" {
 		t.Errorf("manifest.json round-trip mismatch: %+v", got)
+	}
+}
+
+func TestDiagnoseCmd_EndToEnd(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "bundle.tar.gz")
+
+	cmd := newDiagnoseCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{
+		"--output", outputPath,
+		"--db-path", filepath.Join(t.TempDir(), "missing.db"),
+		"--log-path", filepath.Join(t.TempDir(), "missing.log"),
+		"--since", "1m",
+		"--lines", "10",
+		"--no-logs",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Errorf("expected bundle at %s: %v", outputPath, err)
+	}
+	if !strings.Contains(buf.String(), "wrote diagnostic bundle") {
+		t.Errorf("output missing success message: %s", buf.String())
+	}
+}
+
+func TestRunDiagnose_DefaultOutputName(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if chdirErr := os.Chdir(dir); chdirErr != nil {
+		t.Fatalf("Chdir: %v", chdirErr)
+	}
+	defer func() {
+		if restoreErr := os.Chdir(wd); restoreErr != nil {
+			t.Errorf("restoring cwd: %v", restoreErr)
+		}
+	}()
+
+	cmd, buf := newBufCmd()
+	cmd.SetContext(t.Context())
+	if runErr := runDiagnose(cmd, diagnoseOptions{NoLogs: true, DBPath: filepath.Join(dir, "missing.db")}); runErr != nil {
+		t.Fatalf("runDiagnose: %v", runErr)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, "theia-diagnose-*.tar.gz"))
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Errorf("expected exactly one default-named bundle, got %v", matches)
+	}
+	if !strings.Contains(buf.String(), "attach it to a new issue") {
+		t.Errorf("output missing next-step hint: %s", buf.String())
+	}
+}
+
+func TestRunDiagnose_WriteFailureIsReported(t *testing.T) {
+	// A directory as the output path makes the final tar.gz write fail —
+	// runDiagnose's one genuinely fatal path.
+	cmd, _ := newBufCmd()
+	cmd.SetContext(t.Context())
+	err := runDiagnose(cmd, diagnoseOptions{NoLogs: true, Output: t.TempDir(), DBPath: filepath.Join(t.TempDir(), "missing.db")})
+	if err == nil {
+		t.Fatal("expected an error when the output path is a directory")
+	}
+}
+
+func TestRunDiagnose_ReportsFailedSteps(t *testing.T) {
+	// No daemon is running in the test/CI environment, so
+	// diagnoseReadDaemonCmdline's step always comes back captured=false —
+	// runDiagnose must still succeed overall and surface the failure count
+	// rather than erroring out.
+	cmd, buf := newBufCmd()
+	cmd.SetContext(t.Context())
+	err := runDiagnose(cmd, diagnoseOptions{
+		NoLogs:  true,
+		Output:  filepath.Join(t.TempDir(), "bundle.tar.gz"),
+		DBPath:  filepath.Join(t.TempDir(), "missing.db"),
+		LogPath: filepath.Join(t.TempDir(), "missing.log"),
+	})
+	if err != nil {
+		t.Fatalf("runDiagnose: %v", err)
+	}
+	if !strings.Contains(buf.String(), "collection steps failed") {
+		t.Errorf("expected a failed-steps note, got: %s", buf.String())
 	}
 }
 

@@ -470,15 +470,42 @@ func diagnoseCollectDB(ctx context.Context, dbPath string, exists bool) (*diagno
 	return info, step
 }
 
+// diagnoseTableQueries maps each collected table to its two fixed, literal
+// queries (row count, most-recent bucket). A map of hardcoded strings — not
+// a single query built via fmt.Sprintf(table name) — so there is no dynamic
+// SQL construction for a scanner to flag, even though the table name was
+// already restricted to this same fixed set before this map existed.
+var diagnoseTableQueries = map[string]struct {
+	Count      string
+	MostRecent string
+}{
+	"hourly_stats": {
+		Count:      "SELECT COUNT(*) FROM hourly_stats",
+		MostRecent: "SELECT year, year_day, hour FROM hourly_stats ORDER BY year DESC, year_day DESC, hour DESC LIMIT 1",
+	},
+	"hourly_status_codes": {
+		Count:      "SELECT COUNT(*) FROM hourly_status_codes",
+		MostRecent: "SELECT year, year_day, hour FROM hourly_status_codes ORDER BY year DESC, year_day DESC, hour DESC LIMIT 1",
+	},
+	"hourly_referrers": {
+		Count:      "SELECT COUNT(*) FROM hourly_referrers",
+		MostRecent: "SELECT year, year_day, hour FROM hourly_referrers ORDER BY year DESC, year_day DESC, hour DESC LIMIT 1",
+	},
+	"visitor_days": {
+		Count:      "SELECT COUNT(*) FROM visitor_days",
+		MostRecent: "SELECT year, year_day FROM visitor_days ORDER BY year DESC, year_day DESC LIMIT 1",
+	},
+}
+
 // diagnoseCollectTable returns table's row count and, for the three
 // hour-bucketed tables, the most recent bucket converted to an RFC3339
 // timestamp so it reads like a normal date instead of raw (year, year_day,
-// hour) columns.
+// hour) columns. table must be a key of diagnoseTableQueries.
 func diagnoseCollectTable(ctx context.Context, db *sql.DB, table string) (diagnoseTableInfo, error) {
+	queries := diagnoseTableQueries[table]
+
 	var count int64
-	// table is one of a fixed, hardcoded set of table names above, never
-	// external input, so this is not a SQL-injection risk.
-	if err := db.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, queries.Count).Scan(&count); err != nil {
 		return diagnoseTableInfo{}, err
 	}
 	info := diagnoseTableInfo{Rows: count}
@@ -488,8 +515,7 @@ func diagnoseCollectTable(ctx context.Context, db *sql.DB, table string) (diagno
 
 	if table == "visitor_days" {
 		var year, yearDay int
-		err := db.QueryRowContext(ctx, "SELECT year, year_day FROM visitor_days ORDER BY year DESC, year_day DESC LIMIT 1").Scan(&year, &yearDay)
-		if err != nil {
+		if err := db.QueryRowContext(ctx, queries.MostRecent).Scan(&year, &yearDay); err != nil {
 			return diagnoseTableInfo{}, err
 		}
 		info.MostRecent = diagnoseYearDayToTime(year, yearDay, 0).Format(time.RFC3339)
@@ -497,9 +523,7 @@ func diagnoseCollectTable(ctx context.Context, db *sql.DB, table string) (diagno
 	}
 
 	var year, yearDay, hour int
-	// table is from the same fixed allowlist as above.
-	query := fmt.Sprintf("SELECT year, year_day, hour FROM %s ORDER BY year DESC, year_day DESC, hour DESC LIMIT 1", table) //nolint:gosec // table is from a fixed internal allowlist, not external input
-	if err := db.QueryRowContext(ctx, query).Scan(&year, &yearDay, &hour); err != nil {
+	if err := db.QueryRowContext(ctx, queries.MostRecent).Scan(&year, &yearDay, &hour); err != nil {
 		return diagnoseTableInfo{}, err
 	}
 	info.MostRecent = diagnoseYearDayToTime(year, yearDay, hour).Format(time.RFC3339)
