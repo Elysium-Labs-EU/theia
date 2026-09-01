@@ -75,6 +75,7 @@ linters:
       - linters:
           - gosec
           - noctx
+          - nolintlint
         path: _test\.go
       - linters:
           - revive
