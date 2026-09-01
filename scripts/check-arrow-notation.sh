@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Blocks arrow notation in prose (*.md files): bare "->"/"<-" and HTML arrow
-# entities ("&rarr;", "&larr;", etc).
+# Blocks arrow notation in prose (*.md files): bare "->"/"<-", unicode
+# arrows ("→"/"←"), and HTML arrow entities ("&rarr;", "&larr;", etc).
 #
 # Arrows read as pseudo-code, not prose, and this repo's style favors plain
-# sentences (see AGENTS.md) — use the unicode "→"/"←" or a plain word
-# ("becomes", "then", "from") instead. Fenced code blocks are exempt since
-# real code/query syntax (e.g. GitNexus Cypher's -[:REL]->) legitimately
-# needs "->". "<!-- -->" HTML comment delimiters are exempt too — they aren't
-# arrows.
+# sentences (see STYLE.md) -- rely on words for actions since terminals
+# don't always render arrow characters properly. Fenced code blocks are
+# exempt since real code/query syntax (e.g. GitNexus Cypher's -[:REL]->)
+# legitimately needs "->". "<!-- -->" HTML comment delimiters are exempt
+# too -- they aren't arrows. CHANGELOG.md is exempt since it's
+# git-cliff-generated from verbatim historical commit subjects.
 set -euo pipefail
 
 failed=0
@@ -31,19 +32,23 @@ while IFS= read -r -d '' f; do
 
     # "-->" (HTML comment close) is not the arrow notation this checks for.
     if [[ "$line" == *"->"* && "$line" != *"-->"* ]]; then
-      flag "$f" "$line_no" 'ASCII "->" in prose, use "→" or a plain word'
+      flag "$f" "$line_no" 'ASCII "->" in prose, use a plain word instead'
     fi
     if [[ "$line" == *"<-"* ]]; then
-      flag "$f" "$line_no" 'ASCII "<-" in prose, use "←" or a plain word'
+      flag "$f" "$line_no" 'ASCII "<-" in prose, use a plain word instead'
+    fi
+    if [[ "$line" == *"→"* || "$line" == *"←"* ]]; then
+      flag "$f" "$line_no" 'unicode arrow in prose, use a plain word instead'
     fi
     if [[ "$line" =~ \&[A-Za-z]*[Aa]rr\; ]]; then
-      flag "$f" "$line_no" "HTML arrow entity (${BASH_REMATCH[0]}) in prose, use \"→\"/\"←\" or a plain word"
+      flag "$f" "$line_no" "HTML arrow entity (${BASH_REMATCH[0]}) in prose, use a plain word instead"
     fi
   done < "$f"
 done < <(find . -name '*.md' \
   -not -path './node_modules/*' \
   -not -path './.git/*' \
   -not -path './.claude/worktrees/*' \
+  -not -path './CHANGELOG.md' \
   -print0)
 
 if [[ "$failed" -ne 0 ]]; then

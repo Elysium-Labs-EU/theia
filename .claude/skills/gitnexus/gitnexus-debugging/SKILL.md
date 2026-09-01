@@ -22,7 +22,7 @@ description: "Use when the user is debugging a bug, tracing an error, or asking 
 4. cypher({statement: "MATCH path..."})                 → Custom traces if needed
 ```
 
-> If "Index is stale" → run `node .gitnexus/run.cjs analyze` in terminal.
+> If "Index is stale", run `node .gitnexus/run.cjs analyze` in terminal.
 
 ## Checklist
 
@@ -40,10 +40,10 @@ description: "Use when the user is debugging a bug, tracing an error, or asking 
 
 | Symptom              | GitNexus Approach                                          |
 | -------------------- | ---------------------------------------------------------- |
-| Error message        | `query` for error text → `context` on throw sites |
-| Wrong return value   | `context` on the function → trace callees for data flow    |
-| Intermittent failure | `context` → look for external calls, async deps            |
-| Performance issue    | `context` → find symbols with many callers (hot paths)     |
+| Error message        | `query` for error text, then `context` on throw sites |
+| Wrong return value   | `context` on the function, then trace callees for data flow    |
+| Intermittent failure | `context`, then look for external calls, async deps            |
+| Performance issue    | `context`, then find symbols with many callers (hot paths)     |
 | Recent regression    | `detect_changes` to see what your changes affect           |
 | "How does A reach B?" | `trace` between the two symbols — shortest call chain in one call |
 

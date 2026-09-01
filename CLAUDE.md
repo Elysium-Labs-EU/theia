@@ -7,7 +7,7 @@ See [style.md](STYLE.md) — Go-FP + data-oriented design guidelines.
 
 This project is indexed by GitNexus as **theia** (799 symbols, 2327 relationships, 66 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash; #1939).
 
 ## Always Do
 
@@ -16,7 +16,7 @@ This project is indexed by GitNexus as **theia** (799 symbols, 2327 relationship
 - **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
 - When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
 - When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
-- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source-to-sink flows; needs `analyze --pdg`).
 
 ## Never Do
 

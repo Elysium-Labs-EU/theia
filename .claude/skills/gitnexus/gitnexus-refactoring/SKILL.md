@@ -16,13 +16,13 @@ description: "Use when the user wants to rename, extract, split, move, or restru
 ## Workflow
 
 ```
-1. impact({target: "X", direction: "upstream"})  → Map all dependents
-2. query({search_query: "X"})                            → Find execution flows involving X
-3. context({name: "X"})                           → See all incoming/outgoing refs
-4. Plan update order: interfaces → implementations → callers → tests
+1. impact({target: "X", direction: "upstream"})  , then  Map all dependents
+2. query({search_query: "X"}) , then  Find execution flows involving X
+3. context({name: "X"}) , then  See all incoming/outgoing refs
+4. Plan update order: interfaces , then implementations , then callers , then  tests
 ```
 
-> If "Index is stale" → run `node .gitnexus/run.cjs analyze` in terminal.
+> If "Index is stale", run `node .gitnexus/run.cjs analyze` in terminal.
 
 ## Checklists
 

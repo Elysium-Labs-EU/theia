@@ -107,10 +107,14 @@ func TestDiagnoseCollectDB_RowCountsAndFreshness(t *testing.T) {
 	if !step.Captured {
 		t.Fatalf("expected captured step, got %+v", step)
 	}
-	if info == nil {
+	if info == nil { //nolint:staticcheck // info can be nil when db file doesn't exist
 		t.Fatalf("expected non-nil db info")
 	}
-	if info.Tables["hourly_stats"].Rows != 1 {
+	// diagnoseCollectDB always initializes Tables to a non-nil map
+	if info.Tables == nil { //nolint:staticcheck // diagnoseCollectDB always initializes Tables
+		t.Fatalf("expected non-nil db info.Tables")
+	}
+	if info.Tables["hourly_stats"].Rows != 1 { //nolint:staticcheck // map access returns zero value, not nil
 		t.Errorf("hourly_stats rows: got %d, want 1", info.Tables["hourly_stats"].Rows)
 	}
 	if info.Tables["hourly_stats"].MostRecent != now.Format(time.RFC3339) {
@@ -142,10 +146,14 @@ func TestDiagnoseCollectDB_PartialTableFailureKeepsOthers(t *testing.T) {
 	if step.Note == "" {
 		t.Errorf("expected a note listing the failed table")
 	}
-	if info == nil {
+	if info == nil { //nolint:staticcheck // info can be nil when some tables fail
 		t.Fatalf("expected non-nil db info despite one failing table")
 	}
-	if info.Tables["hourly_stats"].Rows != 1 {
+	// diagnoseCollectDB always initializes Tables to a non-nil map
+	if info.Tables == nil { //nolint:staticcheck // diagnoseCollectDB always initializes Tables
+		t.Fatalf("expected non-nil db info.Tables")
+	}
+	if info.Tables["hourly_stats"].Rows != 1 { //nolint:staticcheck // map access returns zero value, not nil
 		t.Errorf("hourly_stats should still be collected, got %+v", info.Tables["hourly_stats"])
 	}
 	if _, ok := info.Tables["hourly_referrers"]; ok {
@@ -404,11 +412,15 @@ func TestDiagnoseCollect_NeverFatal(t *testing.T) {
 		Lines:   10,
 	})
 
-	if manifest == nil {
+	if manifest == nil { //nolint:staticcheck // manifest can be nil
 		t.Fatal("expected non-nil manifest")
 	}
+	// diagnoseCollect always initializes Steps to a non-nil slice
+	if manifest.Steps == nil { //nolint:staticcheck // diagnoseCollect always initializes Steps
+		t.Fatal("expected non-nil manifest.Steps")
+	}
 	stepNames := map[string]bool{}
-	for _, s := range manifest.Steps {
+	for _, s := range manifest.Steps { //nolint:staticcheck // diagnoseCollect always initializes Steps
 		stepNames[s.Name] = true
 	}
 	for _, want := range []string{"version", "daemon", "daemon-cmdline", "config", "db"} {

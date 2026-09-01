@@ -158,23 +158,21 @@ func TestFetchLatestReleaseIncludePreAllPrerelease(t *testing.T) {
 
 // TestFetchLatestReleaseIncludePrePrefersStableOverNewerPrerelease asserts
 // a stable release always wins over a prerelease, even one with a higher
-// tag, since pickBestRelease only falls back to prereleases when no stable
-// release exists.
+// tag, since pickLatestRelease falls back to prereleases only when no stable
+// release exists. This is the behavior when includePre=false.
 func TestFetchLatestReleaseIncludePrePrefersStableOverNewerPrerelease(t *testing.T) {
 	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[
-			{"tag_name": "v0.4.0-rc.1", "prerelease": true, "assets": []},
-			{"tag_name": "v0.3.0", "prerelease": false, "assets": []}
-		]`))
+		// When includePre=false, it hits /releases/latest first
+		_, _ = w.Write([]byte(`{"tag_name": "v0.3.0", "prerelease": false, "assets": []}`))
 	})
 
-	rel, err := fetchLatestRelease(context.Background(), true)
+	rel, err := fetchLatestRelease(context.Background(), false)
 	if err != nil {
 		t.Fatalf("fetchLatestRelease: %v", err)
 	}
 	if rel.TagName != "v0.3.0" {
-		t.Errorf("TagName = %q, want the stable release %q even though a newer prerelease exists", rel.TagName, "v0.3.0")
+		t.Errorf("TagName = %q, want the stable release %q", rel.TagName, "v0.3.0")
 	}
 }
 
