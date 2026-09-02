@@ -23,7 +23,7 @@ GATE="scripts/check-arrow-notation.sh"
 SCRATCH_DIR="scripts/arrownotationscratch"
 SCRATCH_FILE="$SCRATCH_DIR/scratch.md"
 
-if [ -e "$SCRATCH_DIR" ]; then
+if [[ -e "$SCRATCH_DIR" ]]; then
   echo "check-arrow-notation_test: $SCRATCH_DIR already exists; aborting rather than risk clobbering it (this test owns that path exclusively)." >&2
   exit 1
 fi
@@ -43,7 +43,7 @@ run_case() {
   else
     result="fail"
   fi
-  if [ "$result" = "$expect" ]; then
+  if [[ "$result" = "$expect" ]]; then
     echo "PASS: $label ($result as expected)"
   else
     echo "FAIL: $label -- expected $expect, got $result:"
@@ -80,7 +80,7 @@ run_case '"->" inside fenced code block' pass
 printf '<!-- gitnexus:start -->\n' > "$SCRATCH_FILE"
 run_case '"-->" HTML comment close' pass
 
-if [ "$fail" -ne 0 ]; then
+if [[ "$fail" -ne 0 ]]; then
   echo "check-arrow-notation_test: FAILED"
   exit 1
 fi
