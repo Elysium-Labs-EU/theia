@@ -177,7 +177,7 @@ Example:
 		},
 	}
 
-	diagnoseCmd.Flags().String("db-path", "", "override the resolved db-path (default: read from the running daemon, else ./theia.db)")
+	diagnoseCmd.Flags().String("db-path", "", "override the resolved db-path (default: read from the running daemon, else "+defaultDBPath+")")
 	diagnoseCmd.Flags().String("log-path", "", "override the resolved log-path (default: read from the running daemon, else /var/log/nginx/access.log)")
 	diagnoseCmd.Flags().String("output", "", "output tar.gz path (default ./theia-diagnose-<timestamp>.tar.gz)")
 	diagnoseCmd.Flags().Duration("since", 10*time.Minute, "time window for the daemon log")
