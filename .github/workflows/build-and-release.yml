@@ -77,7 +77,9 @@ jobs:
           go-version-file: go.mod
 
       - name: Install Task
-        run: go install github.com/go-task/task/v3/cmd/task@a10322cd63f94d8bc8b48bb5c0e80eec10eda1e7 # v3.53.1
+        run: |
+          go install github.com/go-task/task/v3/cmd/task@a10322cd63f94d8bc8b48bb5c0e80eec10eda1e7 # v3.53.1
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Install dev tools
         run: task setup:setup
