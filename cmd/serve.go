@@ -64,7 +64,7 @@ Example:
 		},
 	}
 
-	serveCmd.Flags().String("db-path", "./theia.db", "path to the sqlite database")
+	serveCmd.Flags().String("db-path", defaultDBPath, "path to the sqlite database")
 	serveCmd.Flags().String("addr", "127.0.0.1:8081", "address to bind the stats API to (must be 127.0.0.1 or localhost)")
 	serveCmd.Flags().String("token", "", "bearer token required on every request (avoid on shared machines — visible in the process list; prefer --token-file or "+theiaAPITokenEnv)
 	serveCmd.Flags().String("token-file", "", "path to a file containing the bearer token")

@@ -61,7 +61,7 @@ func TestDiagnoseResolveConfig(t *testing.T) {
 
 	t.Run("falls back to default guess with no cmdline", func(t *testing.T) {
 		info := diagnoseResolveConfig(diagnoseOptions{}, nil)
-		if info.DBPath != "./theia.db" || info.DBPathSource != "default-guess" {
+		if info.DBPath != "/var/lib/theia/theia.db" || info.DBPathSource != "default-guess" {
 			t.Errorf("got %+v", info)
 		}
 		if info.LogPath != "/var/log/nginx/access.log" || info.LogPathSource != "default-guess" {

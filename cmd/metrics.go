@@ -56,7 +56,7 @@ Example:
 		},
 	}
 
-	serveMetricsCmd.Flags().String("db-path", "./theia.db", "path to the sqlite database")
+	serveMetricsCmd.Flags().String("db-path", defaultDBPath, "path to the sqlite database")
 	serveMetricsCmd.Flags().String("addr", "127.0.0.1:8082", "address to bind the metrics endpoint to (must be 127.0.0.1 or localhost)")
 	serveMetricsCmd.Flags().Int("top", 20, "max number of distinct paths/referrers exported (bounds Prometheus label cardinality)")
 

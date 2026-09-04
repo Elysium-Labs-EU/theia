@@ -70,7 +70,7 @@ Example:
 		},
 	}
 
-	statsCmd.Flags().String("db-path", "./theia.db", "path to the sqlite database")
+	statsCmd.Flags().String("db-path", defaultDBPath, "path to the sqlite database")
 	statsCmd.Flags().Int("days", 7, "number of days to look back")
 	statsCmd.Flags().String("host", "", "filter by host (empty = all hosts)")
 	statsCmd.Flags().String("format", "table", "output format: table or json")

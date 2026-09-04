@@ -7,11 +7,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// defaultDBPath and defaultLogPath are daemon's own flag defaults — diagnose.go
-// reuses them as its last-resort "default-guess" fallback so the two can't
-// silently drift apart.
+// defaultDBPath and defaultLogPath are the shared flag defaults for every
+// subcommand that takes --db-path/--log-path (daemon, serve, serve-metrics,
+// stats) — diagnose.go also reuses them as its last-resort "default-guess"
+// fallback. defaultDBPath is a fixed absolute path, not cwd-relative: theia
+// always runs as a root-managed system service, so an absolute default is
+// the one value every subcommand can converge on regardless of the caller's
+// working directory — unlike a relative "./theia.db", which only happened to
+// resolve correctly for the daemon because the systemd unit sets
+// WorkingDirectory=/var/lib/theia.
 const (
-	defaultDBPath  = "./theia.db"
+	defaultDBPath  = "/var/lib/theia/theia.db"
 	defaultLogPath = "/var/log/nginx/access.log"
 )
 
