@@ -36,8 +36,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
       - name: Install Task
-        run: curl -sL https://taskfile.dev/install.sh | sh
+        run: go install github.com/go-task/task/v3/cmd/task@a10322cd63f94d8bc8b48bb5c0e80eec10eda1e7 # v3.53.1
 
       - name: Check file size and LFS pointers
         run: task lint:check-file-size
@@ -51,8 +56,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
       - name: Install Task
-        run: curl -sL https://taskfile.dev/install.sh | sh
+        run: go install github.com/go-task/task/v3/cmd/task@a10322cd63f94d8bc8b48bb5c0e80eec10eda1e7 # v3.53.1
 
       - name: Check GitHub Actions are SHA-pinned
         run: task lint:check-action-pins
@@ -64,8 +74,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
       - name: Install Task
-        run: curl -sL https://taskfile.dev/install.sh | sh
+        run: go install github.com/go-task/task/v3/cmd/task@a10322cd63f94d8bc8b48bb5c0e80eec10eda1e7 # v3.53.1
 
       - name: Check for arrow notation in markdown prose
         run: task lint:check-arrow-notation
@@ -124,7 +139,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install Task
-        run: curl -sL https://taskfile.dev/install.sh | sh
+        run: go install github.com/go-task/task/v3/cmd/task@a10322cd63f94d8bc8b48bb5c0e80eec10eda1e7 # v3.53.1
 
       - name: Install go-crap
         run: go install github.com/padiazg/go-crap@eafaa809d9a128b98cb9786aa498f56a04c79bd9 # v0.5.0
@@ -147,7 +162,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install Task
-        run: curl -sL https://taskfile.dev/install.sh | sh
+        run: go install github.com/go-task/task/v3/cmd/task@a10322cd63f94d8bc8b48bb5c0e80eec10eda1e7 # v3.53.1
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@d1f380186385b4f64e00313f31743df8e4b89a77 # v1.1.4
@@ -170,7 +185,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install Task
-        run: curl -sL https://taskfile.dev/install.sh | sh
+        run: go install github.com/go-task/task/v3/cmd/task@a10322cd63f94d8bc8b48bb5c0e80eec10eda1e7 # v3.53.1
 
       - name: Install gitleaks
         run: go install github.com/zricethezav/gitleaks/v8@83d9cd684c87d95d656c1458ef04895a7f1cbd8e # v8.30.1
