@@ -1,0 +1,98 @@
+version: '3'
+
+vars:
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "none"
+  BUILD_DATE:
+    sh: date -u '+%Y-%m-%d %H:%M:%S UTC'
+  VERSION_PKG:
+    sh: echo "$(go list -m)/internal/buildinfo"
+  LDFLAGS: >-
+    -ldflags "-X '{{.VERSION_PKG}}.Version={{.VERSION}}'
+    -X '{{.VERSION_PKG}}.GitCommit={{.COMMIT}}'
+    -X '{{.VERSION_PKG}}.BuildDate={{.BUILD_DATE}}' -w -s"
+  GOLANGCI_LINT_VERSION:
+    sh: cat .golangci-lint-version
+  COVERAGE_THRESHOLD: '60'
+  BINARY_NAME: theia
+  GOBIN: ./bin
+  INSTALL_PATH: ~/.local/bin
+
+env:
+  # golangci-lint's cache defaults to one shared directory per user and keys
+  # entries on file content. Two worktrees of this repo hold identical sources,
+  # so their keys collide and one tree is served the other's stored findings -
+  # complete with the absolute paths recorded when they were first analysed. A
+  # clean tree then reports issues citing ../<sibling-worktree>/, and once that
+  # sibling is deleted the citation points at nothing. Keeping the cache inside
+  # the worktree makes collision impossible and needs no reaping: the cache is
+  # removed with the tree that owns it. Must be absolute and must not drift
+  # per included file -- {{.ROOT_DIR}} is the root Taskfile's directory
+  # regardless of which included taskfiles/*.yml task is executing.
+  GOLANGCI_LINT_CACHE: '{{.ROOT_DIR}}/.cache/golangci-lint'
+
+includes:
+  build:
+    taskfile: ./taskfiles/build.yml
+    vars:
+      VERSION: '{{.VERSION}}'
+      LDFLAGS: '{{.LDFLAGS}}'
+      BINARY_NAME: '{{.BINARY_NAME}}'
+      GOBIN: '{{.GOBIN}}'
+      INSTALL_PATH: '{{.INSTALL_PATH}}'
+      GOLANGCI_LINT_CACHE: '{{.GOLANGCI_LINT_CACHE}}'
+  test:
+    taskfile: ./taskfiles/test.yml
+    vars:
+      COVERAGE_THRESHOLD: '{{.COVERAGE_THRESHOLD}}'
+  lint:
+    taskfile: ./taskfiles/lint.yml
+    vars:
+      GOLANGCI_LINT_VERSION: '{{.GOLANGCI_LINT_VERSION}}'
+  setup:
+    taskfile: ./taskfiles/setup.yml
+    vars:
+      GOLANGCI_LINT_VERSION: '{{.GOLANGCI_LINT_VERSION}}'
+  release:
+    taskfile: ./taskfiles/release.yml
+    vars:
+      LDFLAGS: '{{.LDFLAGS}}'
+      BINARY_NAME: '{{.BINARY_NAME}}'
+      VERSION: '{{.VERSION}}'
+  docker:
+    taskfile: ./taskfiles/docker.yml
+
+tasks:
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  ci:
+    desc: Run all CI checks locally (runs all, reports all failures)
+    # Must be cmds: with explicit sequential task: calls, never deps: -- Task
+    # runs a deps: array concurrently, not left-to-right like Make's
+    # prerequisite list. The Makefile equivalent runs strictly in order;
+    # porting it as deps: would race unrelated test runs against each other
+    # and drop fail-fast-in-order behavior.
+    cmds:
+      - task: test:test
+      - task: lint:lint
+      - task: lint:nilcheck
+      - task: lint:crap
+      - task: lint:govulncheck
+      - task: lint:secrets
+      - task: lint:check-file-size
+      - task: lint:check-arrow-notation
+      - task: lint:check-golangci-pin
+      - task: lint:check-action-pins
+      - echo "All CI checks passed!"
+
+  clean:
+    desc: Remove build artifacts and clean Docker resources
+    cmds:
+      - task: build:clean
+      - task: docker:clean
+      - go clean

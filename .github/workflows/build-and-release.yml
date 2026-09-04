@@ -18,7 +18,7 @@ jobs:
   # A pre-release always ranks below the stable release with the same
   # MAJOR.MINOR.PATCH (semver), so a "-rc.N" tag cut after that version
   # already shipped stable is permanently unreachable to any update
-  # check — silently. Blocks both that case and exact tag reuse.
+  # check -- silently. Blocks both that case and exact tag reuse.
   tag-guard:
     runs-on: ubuntu-latest
     permissions:
@@ -43,7 +43,7 @@ jobs:
           [[ "$VERSION" =~ -[a-zA-Z] ]] && IS_PRE=true
 
           if gh release view "$VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "::error::Tag $VERSION already has a release — refusing to re-tag/overwrite."
+            echo "::error::Tag $VERSION already has a release -- refusing to re-tag/overwrite."
             exit 1
           fi
 
@@ -55,7 +55,7 @@ jobs:
 
           echo "OK: $VERSION does not reuse an already-released version line."
 
-  # Re-runs the full make ci gate (test, lint, nilaway, coverage floor,
+  # Re-runs the full task ci gate (test, lint, nilaway, coverage floor,
   # go-crap change-risk gate) at release time rather than trusting main was
   # never rebased/force-pushed since ci.yml last ran on it. Previously this
   # job hand-copied only test+lint+nilaway, so a release could ship with a
@@ -76,11 +76,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@a10322cd63f94d8bc8b48bb5c0e80eec10eda1e7 # v3.53.1
+
       - name: Install dev tools
-        run: make setup
+        run: task setup:setup
 
       - name: Run CI gate
-        run: make ci
+        run: task ci
 
   build:
     needs: [ci, tag-guard]
@@ -183,7 +186,7 @@ jobs:
         run: |
           cd release
           if [ -z "${RELEASE_SIGNING_KEY:-}" ]; then
-            echo "RELEASE_SIGNING_KEY secret is not set — skipping release signing."
+            echo "RELEASE_SIGNING_KEY secret is not set -- skipping release signing."
             echo "Clients only warn on a missing signature right now (see requireReleaseSignature"
             echo "in cmd/update.go), but that's meant to flip to a hard failure once this secret"
             echo "is provisioned and a signed release has shipped. Provision it before then."

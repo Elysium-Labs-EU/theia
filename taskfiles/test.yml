@@ -1,0 +1,36 @@
+version: '3'
+
+vars:
+  COVERAGE_THRESHOLD: '{{.COVERAGE_THRESHOLD | default "60"}}'
+
+tasks:
+  test:
+    desc: Run tests
+    cmds:
+      - echo "Running tests..."
+      - go test . ./cmd ./internal/... ./database/... -race -count=2
+
+  coverage:
+    desc: Get test coverage
+    cmds:
+      - echo "Getting test coverage..."
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out
+
+  coverage-check:
+    desc: Fail if total coverage is below COVERAGE_THRESHOLD
+    cmds:
+      - go test -coverprofile=coverage.out ./... -covermode=atomic -count=1 2>&1 | grep -v "^?" || true
+      - |
+        total=$(go tool cover -func=coverage.out | awk '/^total:/{gsub(/%/,""); print $3}')
+        echo "Total coverage: ${total}%"
+        if [ "$(echo "$total < {{.COVERAGE_THRESHOLD}}" | bc)" = "1" ]; then
+          echo "Coverage ${total}% below threshold {{.COVERAGE_THRESHOLD}}%"
+          exit 1
+        fi
+
+  leak-test:
+    desc: Run tests with goroutine leak detection
+    cmds:
+      - echo "Running tests with goroutine leak detection..."
+      - go test ./... -count=1 -timeout=60s -v 2>&1 | grep -E "(PASS|FAIL|leak|goroutine)" || true
