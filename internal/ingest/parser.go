@@ -11,9 +11,13 @@ import (
 	"time"
 )
 
+// The request field is captured whole rather than as "METHOD PATH PROTOCOL",
+// since nginx logs a malformed or absent request (a TLS probe, a truncated
+// or non-HTTP connection) as an empty or partial string here — a real log
+// line that must still be parsed, not just well-formed "GET /x HTTP/1.1".
 var (
-	regexWithHost = regexp.MustCompile(`^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) \S+" (\d+) (\d+) "([^"]*)" "([^"]*)" "([^"]*)"`)
-	regexStandard = regexp.MustCompile(`^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) \S+" (\d+) (\d+) "([^"]*)" "([^"]*)"`)
+	regexWithHost = regexp.MustCompile(`^(\S+) \S+ \S+ \[([^\]]+)\] "([^"]*)" (\d+) (\d+) "([^"]*)" "([^"]*)" "([^"]*)"`)
+	regexStandard = regexp.MustCompile(`^(\S+) \S+ \S+ \[([^\]]+)\] "([^"]*)" (\d+) (\d+) "([^"]*)" "([^"]*)"`)
 )
 
 // NormalizeHost canonicalizes a host value for storage and filtering.
@@ -46,6 +50,18 @@ func determineMatchingPattern(line string) (matches []string, withHost bool, err
 	return nil, false, fmt.Errorf("failed to parse log line")
 }
 
+// requestLinePath extracts the path from a request line's "METHOD PATH
+// PROTOCOL" content. A well-formed line has exactly that shape, but nginx
+// also logs malformed or absent requests as an empty or partial string here,
+// which have no path to extract.
+func requestLinePath(request string) string {
+	fields := strings.Fields(request)
+	if len(fields) < 2 {
+		return ""
+	}
+	return fields[1]
+}
+
 func parseNginxLog(line string) (PageView, error) {
 	matches, withHost, err := determineMatchingPattern(line)
 	if err != nil {
@@ -54,14 +70,14 @@ func parseNginxLog(line string) (PageView, error) {
 
 	ip := matches[1]
 	timestamp := matches[2]
-	path := matches[4]
-	statusCode := matches[5]
-	bytesSent := matches[6]
-	referrer := matches[7]
-	userAgent := matches[8]
+	path := requestLinePath(matches[3])
+	statusCode := matches[4]
+	bytesSent := matches[5]
+	referrer := matches[6]
+	userAgent := matches[7]
 	var host string
 	if withHost {
-		host = matches[9]
+		host = matches[8]
 	} else {
 		host = getDefaultHost()
 	}
