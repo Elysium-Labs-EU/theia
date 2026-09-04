@@ -55,7 +55,7 @@ jobs:
 
           echo "OK: $VERSION does not reuse an already-released version line."
 
-  # Re-runs the full make ci gate (test, lint, nilaway, coverage floor,
+  # Re-runs the full task ci gate (test, lint, nilaway, coverage floor,
   # go-crap change-risk gate) at release time rather than trusting main was
   # never rebased/force-pushed since ci.yml last ran on it. Previously this
   # job hand-copied only test+lint+nilaway, so a release could ship with a
@@ -77,10 +77,10 @@ jobs:
           go-version-file: go.mod
 
       - name: Install dev tools
-        run: make setup
+        run: task setup:setup
 
       - name: Run CI gate
-        run: make ci
+        run: task ci
 
   build:
     needs: [ci, tag-guard]
