@@ -1,0 +1,84 @@
+version: '3'
+
+# GOLANGCI_LINT_VERSION comes from the parent Taskfile.yml via this include's
+# `vars:` passthrough -- do not redeclare it here (see below for why: a
+# self-referencing redeclaration shadows the passed-in value with empty).
+
+tasks:
+  setup:
+    desc: Install dev tools (golangci-lint, nilaway, go-crap, gitleaks, govulncheck) and git hooks
+    cmds:
+      - task: install-tool-version-checked
+        vars:
+          NAME: golangci-lint
+          VERSION: '{{.GOLANGCI_LINT_VERSION}}'
+          INSTALL: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
+      - task: install-tool-cargo
+        vars:
+          NAME: git-cliff
+          INSTALL: cargo install git-cliff
+          FALLBACK_MSG: "cargo not found -- install git-cliff manually: https://git-cliff.org/docs/installation"
+      - task: install-tool-go
+        vars: {NAME: nilaway, DESC: "nilaway (nil pointer static analysis)", INSTALL: "go install go.uber.org/nilaway/cmd/nilaway@latest"}
+      - task: install-tool-go
+        vars: {NAME: go-crap, DESC: "go-crap (change-risk analysis)", INSTALL: "go install github.com/padiazg/go-crap@latest"}
+      - task: install-tool-go
+        vars: {NAME: gitleaks, DESC: "gitleaks (secret scanning)", INSTALL: "go install github.com/zricethezav/gitleaks/v8@latest"}
+      - task: install-tool-go
+        vars: {NAME: govulncheck, INSTALL: "go install golang.org/x/vuln/cmd/govulncheck@latest"}
+      - echo "Setup complete."
+
+  fix:
+    desc: Fix go formatting
+    cmds:
+      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}} fmt
+      - go run golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest -fix ./...
+
+  # Presence-only check ("command -v $NAME"), installed via "go install".
+  # Covers nilaway, go-crap, gitleaks, govulncheck -- none of these pin a version.
+  install-tool-go:
+    internal: true
+    vars:
+      DESC: '{{.DESC | default .NAME}}'
+    cmds:
+      - |
+        if command -v {{.NAME}} >/dev/null 2>&1; then
+          echo "{{.NAME}} already installed, skipping"
+        else
+          echo "Installing {{.DESC}}..."
+          {{.INSTALL}}
+        fi
+
+  # Presence-only check, installed via "cargo install", with a fallback message
+  # when cargo itself isn't present (git-cliff -- optional toolchain).
+  install-tool-cargo:
+    internal: true
+    vars:
+      DESC: '{{.DESC | default .NAME}}'
+    cmds:
+      - |
+        if command -v {{.NAME}} >/dev/null 2>&1; then
+          echo "{{.NAME}} already installed, skipping"
+        else
+          echo "Installing {{.DESC}}..."
+          {{.INSTALL}} 2>/dev/null || echo "{{.FALLBACK_MSG}}"
+        fi
+
+  # Version-aware check: only golangci-lint pins a version and re-installs when
+  # the installed version doesn't match .golangci-lint-version.
+  install-tool-version-checked:
+    internal: true
+    cmds:
+      - |
+        if command -v {{.NAME}} >/dev/null 2>&1; then
+          installed_version=$({{.NAME}} version 2>&1 | grep -o '{{.VERSION}}' || echo "")
+          if [ "$installed_version" = "{{.VERSION}}" ]; then
+            echo "{{.NAME}} {{.VERSION}} already installed, skipping"
+          else
+            echo "Installing {{.NAME}} {{.VERSION}}..."
+            {{.INSTALL}}
+          fi
+        else
+          echo "Installing {{.NAME}} {{.VERSION}}..."
+          {{.INSTALL}}
+        fi

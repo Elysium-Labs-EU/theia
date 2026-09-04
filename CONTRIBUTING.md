@@ -2,17 +2,17 @@
 
 ## Prerequisites
 
-Go 1.26.5 or later and `make` are required. Verify with `go version` and `make --version`.
+Go 1.26.5 or later and [Task](https://taskfile.dev) are required. Verify with `go version` and `task --version`.
 
 ## Setup
 
 ```bash
 git clone https://github.com/Elysium-Labs-EU/theia
 cd theia
-make setup
+task setup:setup
 ```
 
-`make setup` installs the development toolchain (golangci-lint, nilaway, go-crap). Run `make help` to see all available targets; always prefer a make target over raw `go` or tool commands.
+`task setup:setup` installs the development toolchain (golangci-lint, nilaway, go-crap). Run `task --list` to see all available tasks; always prefer a Task task over raw `go` or tool commands.
 
 ## Making Changes
 
@@ -25,10 +25,10 @@ Branch from `main` and name the branch after the change: `feat/service-labels`, 
 ## Running Tests
 
 ```bash
-make ci
+task ci
 ```
 
-This runs the full test, lint, nilaway, and change-scoped CRAP gate. It must pass before opening a PR. If lint reports violations, `make fix` resolves most of them automatically; run `make ci` again after.
+This runs the full test, lint, nilaway, and change-scoped CRAP gate. It must pass before opening a PR. If lint reports violations, `task setup:fix` resolves most of them automatically; run `task ci` again after.
 
 ## Commit Format
 
@@ -49,4 +49,4 @@ Breaking changes go in the commit footer: `BREAKING CHANGE: <description>`.
 
 Fill in the PR template. The summary should explain *why* the change is needed, not just what it does. Link the issue it resolves with `Closes #N`.
 
-All CI checks must be green. A PR that breaks `make ci` will not be reviewed until it is fixed.
+All CI checks must be green. A PR that breaks `task ci` will not be reviewed until it is fixed.

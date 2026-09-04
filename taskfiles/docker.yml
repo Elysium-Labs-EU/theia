@@ -1,0 +1,90 @@
+version: '3'
+
+tasks:
+  local:
+    desc: Test with local Docker setup
+    cmds:
+      - echo "Starting local Docker test environment..."
+      - mkdir -p test-files-local/nginx-logs
+      - sh -c 'docker compose -f test-files-local/docker-compose.yml up --build'
+
+  local-down:
+    desc: Tear down local Docker setup
+    cmds:
+      - docker compose -f test-files-local/docker-compose.yml down
+
+  local-logs:
+    desc: Tail logs local Docker setup
+    cmds:
+      - docker compose -f test-files-local/docker-compose.yml logs -f
+
+  vps:
+    desc: Test install.sh in VPS simulator
+    cmds:
+      - echo "Starting VPS simulator..."
+      - |
+        echo "Once started, run: task docker:vps-test"
+      - sh -c 'docker compose -f test-files-vps/docker-compose.yml up --build -d'
+
+  vps-down:
+    desc: Tear down VPS simulator
+    cmds:
+      - docker compose -f test-files-vps/docker-compose.yml down
+
+  vps-test:
+    desc: Run install.sh in VPS simulator
+    cmds:
+      - echo "Testing install.sh in VPS simulator..."
+      - docker exec -it vps-test-theia bash -c "cd /test-scripts && bash install.sh"
+
+  vps-shell:
+    desc: Open shell in VPS simulator
+    cmds:
+      - echo "Opening shell in VPS simulator..."
+      - docker exec -it vps-test-theia bash
+
+  vps-status:
+    desc: Check theia service status in VPS simulator
+    cmds:
+      - echo "Checking theia service status in VPS..."
+      - docker exec -it vps-test-theia systemctl status theia
+
+  vps-logs:
+    desc: Follow theia logs in VPS simulator
+    cmds:
+      - echo "Following theia logs in VPS..."
+      - docker exec -it vps-test-theia journalctl -u theia -f
+
+  test-build:
+    desc: Build Linux test Docker image
+    cmds:
+      - docker build -f test-files/Dockerfile.test -t theia-test .
+
+  test-linux:
+    desc: Run tests in Linux Docker container
+    deps: [test-build]
+    cmds:
+      - docker run --rm theia-test
+
+  test-linux-verbose:
+    desc: Run tests in Linux Docker container with verbose output
+    deps: [test-build]
+    cmds:
+      - docker run --rm theia-test go test ./cmd ./internal/... -race -count=1 -v
+
+  test-linux-single:
+    desc: Run a single test in Linux Docker container (TEST=TestName)
+    deps: [test-build]
+    vars:
+      TEST: '{{.TEST}}'
+    cmds:
+      - docker run --rm theia-test go test ./cmd ./internal/... -race -count=1 -v -run {{.TEST}}
+
+  clean:
+    desc: Clean up Docker resources
+    cmds:
+      - echo "Cleaning up Docker resources..."
+      - docker compose -f test-files-local/docker-compose.yml down -v 2>/dev/null || true
+      - docker compose -f test-files-vps/docker-compose.yml down -v 2>/dev/null || true
+      - docker rmi theia-test 2>/dev/null || true
+      - rm -rf test-files-local/nginx-logs

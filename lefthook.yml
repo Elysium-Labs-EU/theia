@@ -6,11 +6,11 @@ pre-commit:
 
     - name: lint
       # Pinned to .golangci-lint-version via `go run`, so local lint is byte-identical
-      # to CI and to `make lint`/`make fix` regardless of what's on PATH.
+      # to CI and to `task lint:lint`/`task setup:fix` regardless of what's on PATH.
       # Prevents version-drift false failures (e.g. G115) that tempt `git commit --no-verify`.
       #
-      # GOLANGCI_LINT_CACHE is set inline rather than inherited from the Makefile:
-      # this runs the linter directly, so the Makefile's export never reaches it.
+      # GOLANGCI_LINT_CACHE is set inline rather than inherited from the Taskfile:
+      # this runs the linter directly, so the Taskfile's export never reaches it.
       # Without it the run falls back to the one shared per-user cache, which is
       # keyed on file content - identical sources in two worktrees collide and one
       # tree is served the other's stored findings. That matters most here, since
@@ -25,4 +25,4 @@ pre-commit:
 pre-push:
   jobs:
     - name: crap
-      run: make crap
+      run: task lint:crap
