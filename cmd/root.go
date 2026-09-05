@@ -3,12 +3,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/Elysium-Labs-EU/theia/internal/buildinfo"
+	"github.com/Elysium-Labs-EU/theia/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +43,18 @@ No client-side JavaScript required, making it resistant to ad-blockers.`, buildi
 	return rootCmd
 }
 
+// formatExecutionError renders err for the top-level CLI error output. A
+// *ui.UserError (however deeply wrapped) renders via its Render method, so
+// its Hint reaches the terminal; any other error falls back to its plain
+// Error() text, unchanged from before.
+func formatExecutionError(err error) string {
+	var userErr *ui.UserError
+	if errors.As(err, &userErr) {
+		return userErr.Render()
+	}
+	return err.Error()
+}
+
 // Execute is the entry point for the theia CLI.
 // It builds the root command tree, wires a context that's canceled on
 // SIGINT/SIGTERM so long-running commands (e.g. daemon) can shut down
@@ -53,7 +67,7 @@ func Execute() {
 	err := rootCmd.ExecuteContext(ctx)
 	stop()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, formatExecutionError(err))
 		os.Exit(1)
 	}
 }

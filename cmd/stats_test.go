@@ -5,13 +5,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Elysium-Labs-EU/theia/database"
+	"github.com/Elysium-Labs-EU/theia/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -296,6 +299,40 @@ func TestStatsCmd_InvalidDB(t *testing.T) {
 
 	if err := cmd.Execute(); err == nil {
 		t.Error("expected error for nonexistent db path, got nil")
+	}
+}
+
+// A read-only report failing because the operator can't create the
+// migration lock file (e.g. it exists but isn't readable/writable to them)
+// must say so with an actionable hint, not surface AcquireMigrationLock's
+// raw "permission denied" error.
+func TestRunStats_MigrationLockPermissionDeniedHasHint(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses file permission checks")
+	}
+
+	db, dbPath := setupCmdTestDB(t)
+	database.Close(db) //nolint:errcheck // closed before locking the lock file down
+
+	lockPath := dbPath + ".migrate.lock"
+	if err := os.WriteFile(lockPath, nil, 0o000); err != nil {
+		t.Fatalf("create unreadable lock file: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(lockPath, 0o600) })
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(t.Context())
+	err := runStats(cmd, dbPath, 7, "", "table", 10)
+	if err == nil {
+		t.Fatal("expected a permission error, got nil")
+	}
+
+	var userErr *ui.UserError
+	if !errors.As(err, &userErr) {
+		t.Fatalf("expected *ui.UserError, got %T: %v", err, err)
+	}
+	if !strings.Contains(userErr.Hint, "sudo") {
+		t.Errorf("Hint = %q, want it to suggest sudo", userErr.Hint)
 	}
 }
 

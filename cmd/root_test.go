@@ -2,10 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Elysium-Labs-EU/theia/internal/ui"
 )
 
 func TestRootCmd_NoArgs(t *testing.T) {
@@ -73,5 +77,45 @@ func TestRootCmd_FlagErrorShowsUsage(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "Usage:") {
 		t.Errorf("flag-parsing error should still print usage\ngot: %s", out)
+	}
+}
+
+// A *ui.UserError's Hint is only useful if the top-level error printer
+// actually renders it — Render() being defined is not enough on its own.
+func TestFormatExecutionErrorRendersUserErrorHint(t *testing.T) {
+	err := &ui.UserError{Err: errors.New("binary directory not writable"), Hint: "sudo theia system update"}
+
+	got := formatExecutionError(err)
+
+	if !strings.Contains(got, "sudo theia system update") {
+		t.Errorf("formatExecutionError(%v) = %q, want it to contain the hint", err, got)
+	}
+	if !strings.Contains(got, "binary directory not writable") {
+		t.Errorf("formatExecutionError(%v) = %q, want it to contain the message", err, got)
+	}
+}
+
+// A *ui.UserError wrapped by an outer fmt.Errorf must still be recognized —
+// callers are not required to return it unwrapped.
+func TestFormatExecutionErrorRendersWrappedUserErrorHint(t *testing.T) {
+	inner := &ui.UserError{Err: errors.New("binary directory not writable"), Hint: "sudo theia system update"}
+	err := fmt.Errorf("installing update: %w", inner)
+
+	got := formatExecutionError(err)
+
+	if !strings.Contains(got, "sudo theia system update") {
+		t.Errorf("formatExecutionError(%v) = %q, want it to contain the hint", err, got)
+	}
+}
+
+// A plain error (no hint to offer) must render exactly as before: its own
+// Error() text, nothing more.
+func TestFormatExecutionErrorPlainError(t *testing.T) {
+	err := errors.New("something went wrong")
+
+	got := formatExecutionError(err)
+
+	if got != err.Error() {
+		t.Errorf("formatExecutionError(%v) = %q, want %q", err, got, err.Error())
 	}
 }
