@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/Elysium-Labs-EU/theia/database"
 	"github.com/Elysium-Labs-EU/theia/internal/ingest"
 	"github.com/Elysium-Labs-EU/theia/internal/query"
+	"github.com/Elysium-Labs-EU/theia/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -86,11 +89,11 @@ func runStats(cmd *cobra.Command, dbPath string, days int, host, format string, 
 	}
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
-	// Guard against racing a running daemon's migrations on the same db-path
-	// (issue #23): serialize behind the shared migration lock.
+	// Guard against racing a running daemon's migrations on the same db-path:
+	// serialize behind the shared migration lock.
 	release, lockErr := database.AcquireMigrationLock(dbPath)
 	if lockErr != nil {
-		return fmt.Errorf("acquiring migration lock: %w", lockErr)
+		return wrapMigrationLockError(lockErr)
 	}
 	err = database.RunMigrations(db, database.MigrationsFS, database.MigrationsPath)
 	_ = release() // release error is not actionable here
@@ -110,6 +113,21 @@ func runStats(cmd *cobra.Command, dbPath string, days int, host, format string, 
 	default:
 		return renderTable(cmd, &report, days, host)
 	}
+}
+
+// wrapMigrationLockError turns AcquireMigrationLock's raw "permission
+// denied" into an actionable hint: the lock file lives next to the
+// database, so failing to create/open it means the operator lacks access to
+// that directory — the fix is always to re-run with elevated privileges,
+// never something the error itself can be more specific about.
+func wrapMigrationLockError(lockErr error) error {
+	if errors.Is(lockErr, os.ErrPermission) {
+		return &ui.UserError{
+			Err:  fmt.Errorf("acquiring migration lock: %w", lockErr),
+			Hint: "sudo theia stats",
+		}
+	}
+	return fmt.Errorf("acquiring migration lock: %w", lockErr)
 }
 
 func collectStats(ctx context.Context, db *sql.DB, since time.Time, host string, top int) (statsReport, error) {
