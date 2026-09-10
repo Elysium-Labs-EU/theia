@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Elysium-Labs-EU/theia/database"
+	"github.com/Elysium-Labs-EU/theia/internal/query"
 	"github.com/Elysium-Labs-EU/theia/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -97,7 +98,7 @@ func TestCollectStats(t *testing.T) {
 	insertStat(t, db, "/about", "example.com", now, statSeed{PageViews: 3, UniqueVisitors: 2, BotViews: 0})
 	insertStat(t, db, "/style.css", "example.com", now, statSeed{PageViews: 100, UniqueVisitors: 50, BotViews: 0, IsStatic: true})
 
-	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), "", 10)
+	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), query.Filters{}, 10)
 	if err != nil {
 		t.Fatalf("collectStats: %v", err)
 	}
@@ -124,7 +125,7 @@ func TestCollectStats_HostFilter(t *testing.T) {
 	insertStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 0})
 	insertStat(t, db, "/", "other.com", now, statSeed{PageViews: 10, UniqueVisitors: 7, BotViews: 0})
 
-	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), "example.com", 10)
+	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), query.Filters{Host: "example.com"}, 10)
 	if err != nil {
 		t.Fatalf("collectStats: %v", err)
 	}
@@ -137,7 +138,7 @@ func TestCollectStats_EmptyDB(t *testing.T) {
 	db, _ := setupCmdTestDB(t)
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
-	report, err := collectStats(t.Context(), db, time.Now().AddDate(0, 0, -7), "", 10)
+	report, err := collectStats(t.Context(), db, time.Now().AddDate(0, 0, -7), query.Filters{}, 10)
 	if err != nil {
 		t.Fatalf("collectStats on empty db: %v", err)
 	}
@@ -232,6 +233,88 @@ func TestStatsCmd_TableFormat(t *testing.T) {
 	}
 }
 
+func TestStatsCmd_ExcludeHost(t *testing.T) {
+	db, dbPath := setupCmdTestDB(t)
+	now := time.Now()
+	insertStat(t, db, "/", "example.com", now, statSeed{PageViews: 7, UniqueVisitors: 3, BotViews: 0})
+	insertStat(t, db, "/", "noisy.com", now, statSeed{PageViews: 100, UniqueVisitors: 1, BotViews: 0})
+	database.Close(db) //nolint:errcheck // close before command reopens the same file
+
+	cmd := newStatsCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--db-path", dbPath, "--format", "json", "--exclude-host", "noisy.com"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\noutput: %s", err, buf.String())
+	}
+
+	var report statsReport
+	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+		t.Fatalf("unmarshal JSON: %v\noutput: %s", err, buf.String())
+	}
+	if report.Summary.Pageviews != 7 {
+		t.Errorf("Pageviews: got %d, want 7 (noisy.com excluded)", report.Summary.Pageviews)
+	}
+}
+
+func TestStatsCmd_ExcludePath(t *testing.T) {
+	db, dbPath := setupCmdTestDB(t)
+	now := time.Now()
+	insertStat(t, db, "/", "example.com", now, statSeed{PageViews: 7, UniqueVisitors: 3, BotViews: 0})
+	insertStat(t, db, "/rest/ping", "example.com", now, statSeed{PageViews: 500, UniqueVisitors: 1, BotViews: 0})
+	database.Close(db) //nolint:errcheck // close before command reopens the same file
+
+	cmd := newStatsCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--db-path", dbPath, "--format", "json", "--exclude-path", "/rest/ping"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\noutput: %s", err, buf.String())
+	}
+
+	var report statsReport
+	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+		t.Fatalf("unmarshal JSON: %v\noutput: %s", err, buf.String())
+	}
+	if report.Summary.Pageviews != 7 {
+		t.Errorf("Pageviews: got %d, want 7 (/rest/ping excluded)", report.Summary.Pageviews)
+	}
+	for _, p := range report.TopPaths {
+		if p.Path == "/rest/ping" {
+			t.Errorf("expected /rest/ping to be excluded from top paths, got %+v", report.TopPaths)
+		}
+	}
+}
+
+func TestStatsFiltersFromFlags(t *testing.T) {
+	cmd := newStatsCmd()
+	if err := cmd.ParseFlags([]string{
+		"--host", "Example.COM",
+		"--exclude-host", "Noisy.COM",
+		"--exclude-path", "/rest/ping",
+	}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+
+	got, err := statsFiltersFromFlags(cmd)
+	if err != nil {
+		t.Fatalf("statsFiltersFromFlags: %v", err)
+	}
+
+	want := query.Filters{
+		Host:         "example.com",
+		ExcludeHosts: []string{"noisy.com"},
+		ExcludePaths: []string{"/rest/ping"},
+	}
+	if got.Host != want.Host || len(got.ExcludeHosts) != 1 || got.ExcludeHosts[0] != want.ExcludeHosts[0] || len(got.ExcludePaths) != 1 || got.ExcludePaths[0] != want.ExcludePaths[0] {
+		t.Errorf("statsFiltersFromFlags = %+v, want %+v", got, want)
+	}
+}
+
 func TestStatsCmd_JSONFormat(t *testing.T) {
 	db, dbPath := setupCmdTestDB(t)
 	now := time.Now()
@@ -322,7 +405,7 @@ func TestRunStats_MigrationLockPermissionDeniedHasHint(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(t.Context())
-	err := runStats(cmd, dbPath, 7, "", "table", 10)
+	err := runStats(cmd, dbPath, 7, query.Filters{}, "table", 10)
 	if err == nil {
 		t.Fatal("expected a permission error, got nil")
 	}
@@ -377,7 +460,7 @@ func TestCollectStats_Context(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	_, err := collectStats(ctx, db, time.Now().AddDate(0, 0, -7), "", 10)
+	_, err := collectStats(ctx, db, time.Now().AddDate(0, 0, -7), query.Filters{}, 10)
 	if err == nil {
 		t.Error("expected error with canceled context, got nil")
 	}

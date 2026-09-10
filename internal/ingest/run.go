@@ -12,7 +12,7 @@ import (
 	"github.com/Elysium-Labs-EU/theia/database"
 )
 
-func Run(ctx context.Context, dbPath string, logPath string) error {
+func Run(ctx context.Context, dbPath string, logPath string, filter Filter) error {
 	// "tail -F" retries indefinitely when the file is missing or
 	// unreadable rather than exiting, so a bad --log-path would otherwise
 	// leave the daemon polling forever with no visible error. Fail fast
@@ -84,7 +84,7 @@ func Run(ctx context.Context, dbPath string, logPath string) error {
 	// "tail -F" child and unblocks the scanner loop below. A non-nil
 	// return instead means tail exited on its own (e.g. missing file,
 	// permission denied), which must reach the caller as a real failure.
-	tailErr := tailLog(ctx, buildTailArgs(logPath), pageViews)
+	tailErr := tailLog(ctx, buildTailArgs(logPath), pageViews, filter)
 	if tailErr != nil {
 		log.Printf("Log tailing stopped: %v", tailErr)
 	} else {

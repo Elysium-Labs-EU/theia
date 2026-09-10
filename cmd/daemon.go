@@ -28,8 +28,13 @@ func newDaemonCmd() *cobra.Command {
 		Long: `daemon tails an nginx access log, parses each line into a page view,
 and persists hourly aggregated stats to a sqlite database.
 
+Matching lines are parsed but never written to the database — permanent,
+unlike stats's --exclude-host/--exclude-path, which only hide existing data
+from reports.
+
 Example:
-  theia daemon --log-path /var/log/nginx/access.log --db-path /var/lib/theia/theia.db`,
+  theia daemon --log-path /var/log/nginx/access.log --db-path /var/lib/theia/theia.db
+  theia daemon --exclude-host navidrome.home.rtgs.me --exclude-path /rest/ping`,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Flags parsed fine to reach here, so any error from this point
@@ -47,12 +52,38 @@ Example:
 				return fmt.Errorf("parsing log-path flag: %w", err)
 			}
 
-			return ingest.Run(cmd.Context(), dbPath, logPath)
+			filter, err := daemonFilterFromFlags(cmd)
+			if err != nil {
+				return err
+			}
+
+			return ingest.Run(cmd.Context(), dbPath, logPath, filter)
 		},
 	}
 
 	daemonCmd.Flags().String("db-path", defaultDBPath, "path to the sqlite database")
 	daemonCmd.Flags().String("log-path", defaultLogPath, "path to the nginx access log")
+	daemonCmd.Flags().StringSlice("include-host", nil, "only store page views for this host (repeatable; empty = all hosts)")
+	daemonCmd.Flags().StringSlice("exclude-host", nil, "never store page views for this host (repeatable; wins over --include-host)")
+	daemonCmd.Flags().StringSlice("exclude-path", nil, "never store page views whose path starts with this prefix (repeatable)")
 
 	return daemonCmd
+}
+
+// daemonFilterFromFlags reads daemon's --include-host/--exclude-host/
+// --exclude-path flags into an ingest.Filter.
+func daemonFilterFromFlags(cmd *cobra.Command) (ingest.Filter, error) {
+	includeHosts, err := cmd.Flags().GetStringSlice("include-host")
+	if err != nil {
+		return ingest.Filter{}, fmt.Errorf("parsing include-host flag: %w", err)
+	}
+	excludeHosts, err := cmd.Flags().GetStringSlice("exclude-host")
+	if err != nil {
+		return ingest.Filter{}, fmt.Errorf("parsing exclude-host flag: %w", err)
+	}
+	excludePaths, err := cmd.Flags().GetStringSlice("exclude-path")
+	if err != nil {
+		return ingest.Filter{}, fmt.Errorf("parsing exclude-path flag: %w", err)
+	}
+	return ingest.NewFilter(includeHosts, excludeHosts, excludePaths), nil
 }

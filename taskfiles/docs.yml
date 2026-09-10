@@ -1,0 +1,19 @@
+version: '3'
+
+tasks:
+  adr-find:
+    desc: 'Find ADRs matching a concept: task docs:adr-find -- <concept>'
+    cmds:
+      - |
+        Q="{{.CLI_ARGS}}"
+        test -n "$Q" || { echo 'Usage: task docs:adr-find -- "concept"'; exit 1; }
+        echo "--- docs/adr matching \"$Q\" ---"
+        hits="$(grep -ril -- "$Q" docs/adr/*.md 2>/dev/null)"
+        if [ -z "$hits" ]; then
+          echo "  (no filename/content match, try a narrower term)"
+        else
+          for f in $hits; do
+            status="$(grep -m1 '^Status:' "$f" | sed 's/^Status: *//')"
+            echo "  $f  [${status:-unknown}]"
+          done
+        fi

@@ -35,9 +35,14 @@ func newStatsCmd() *cobra.Command {
 		Short: "Query analytics from the sqlite database",
 		Long: `stats reads page view analytics from the theia sqlite database.
 
+--exclude-host/--exclude-path hide existing data from this report without
+touching the database — unlike daemon's --exclude-host/--exclude-path,
+which stop matching lines from ever being stored.
+
 Example:
   theia stats --db-path /var/lib/theia/theia.db
-  theia stats --days 30 --host example.com --format json`,
+  theia stats --days 30 --host example.com --format json
+  theia stats --exclude-host navidrome.home.rtgs.me --exclude-path /rest/ping`,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Flags parsed fine to reach here, so any error from this point
@@ -53,13 +58,10 @@ Example:
 			if err != nil {
 				return fmt.Errorf("parsing days flag: %w", err)
 			}
-			host, err := cmd.Flags().GetString("host")
+			filters, err := statsFiltersFromFlags(cmd)
 			if err != nil {
-				return fmt.Errorf("parsing host flag: %w", err)
+				return err
 			}
-			// Hosts are stored lowercased at ingest; normalize the filter
-			// too so --host Example.com matches the example.com bucket.
-			host = ingest.NormalizeHost(host)
 			format, err := cmd.Flags().GetString("format")
 			if err != nil {
 				return fmt.Errorf("parsing format flag: %w", err)
@@ -69,20 +71,52 @@ Example:
 				return fmt.Errorf("parsing top flag: %w", err)
 			}
 
-			return runStats(cmd, dbPath, days, host, format, top)
+			return runStats(cmd, dbPath, days, filters, format, top)
 		},
 	}
 
 	statsCmd.Flags().String("db-path", defaultDBPath, "path to the sqlite database")
 	statsCmd.Flags().Int("days", 7, "number of days to look back")
 	statsCmd.Flags().String("host", "", "filter by host (empty = all hosts)")
+	statsCmd.Flags().StringSlice("exclude-host", nil, "hide this host from the report (repeatable)")
+	statsCmd.Flags().StringSlice("exclude-path", nil, "hide page views whose path starts with this prefix (repeatable)")
 	statsCmd.Flags().String("format", "table", "output format: table or json")
 	statsCmd.Flags().Int("top", 10, "number of top paths/referrers to show")
 
 	return statsCmd
 }
 
-func runStats(cmd *cobra.Command, dbPath string, days int, host, format string, top int) error {
+// statsFiltersFromFlags reads stats's --host/--exclude-host/--exclude-path
+// flags into a query.Filters. Hosts are normalized to match how they're
+// stored lowercased at ingest, so e.g. --host Example.com matches the
+// example.com bucket.
+func statsFiltersFromFlags(cmd *cobra.Command) (query.Filters, error) {
+	host, err := cmd.Flags().GetString("host")
+	if err != nil {
+		return query.Filters{}, fmt.Errorf("parsing host flag: %w", err)
+	}
+	excludeHosts, err := cmd.Flags().GetStringSlice("exclude-host")
+	if err != nil {
+		return query.Filters{}, fmt.Errorf("parsing exclude-host flag: %w", err)
+	}
+	excludePaths, err := cmd.Flags().GetStringSlice("exclude-path")
+	if err != nil {
+		return query.Filters{}, fmt.Errorf("parsing exclude-path flag: %w", err)
+	}
+
+	normalizedExcludeHosts := make([]string, len(excludeHosts))
+	for i, h := range excludeHosts {
+		normalizedExcludeHosts[i] = ingest.NormalizeHost(h)
+	}
+
+	return query.Filters{
+		Host:         ingest.NormalizeHost(host),
+		ExcludeHosts: normalizedExcludeHosts,
+		ExcludePaths: excludePaths,
+	}, nil
+}
+
+func runStats(cmd *cobra.Command, dbPath string, days int, f query.Filters, format string, top int) error {
 	db, err := database.Open(cmd.Context(), dbPath)
 	if err != nil {
 		return err
@@ -102,7 +136,7 @@ func runStats(cmd *cobra.Command, dbPath string, days int, host, format string, 
 	}
 
 	since := time.Now().AddDate(0, 0, -days)
-	report, err := collectStats(cmd.Context(), db, since, host, top)
+	report, err := collectStats(cmd.Context(), db, since, f, top)
 	if err != nil {
 		return err
 	}
@@ -111,7 +145,7 @@ func runStats(cmd *cobra.Command, dbPath string, days int, host, format string, 
 	case "json":
 		return renderJSON(cmd, &report)
 	default:
-		return renderTable(cmd, &report, days, host)
+		return renderTable(cmd, &report, days, f.Host)
 	}
 }
 
@@ -130,23 +164,23 @@ func wrapMigrationLockError(lockErr error) error {
 	return fmt.Errorf("acquiring migration lock: %w", lockErr)
 }
 
-func collectStats(ctx context.Context, db *sql.DB, since time.Time, host string, top int) (statsReport, error) {
-	summary, err := query.GetSummary(ctx, db, since, host)
+func collectStats(ctx context.Context, db *sql.DB, since time.Time, f query.Filters, top int) (statsReport, error) {
+	summary, err := query.GetSummary(ctx, db, since, f)
 	if err != nil {
 		return statsReport{}, err
 	}
 
-	paths, err := query.GetTopPaths(ctx, db, since, host, top)
+	paths, err := query.GetTopPaths(ctx, db, since, f, top)
 	if err != nil {
 		return statsReport{}, err
 	}
 
-	statuses, err := query.GetStatusCodes(ctx, db, since, host)
+	statuses, err := query.GetStatusCodes(ctx, db, since, f)
 	if err != nil {
 		return statsReport{}, err
 	}
 
-	referrers, err := query.GetTopReferrers(ctx, db, since, host, top)
+	referrers, err := query.GetTopReferrers(ctx, db, since, f, top)
 	if err != nil {
 		return statsReport{}, err
 	}

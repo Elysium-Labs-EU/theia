@@ -4,8 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/Elysium-Labs-EU/theia/internal/ingest"
 )
 
 // TestDaemonCmd_StopsOnContextCancellation is a regression test for #14:
@@ -46,6 +49,45 @@ func TestDaemonCmd_StopsOnContextCancellation(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("daemon did not stop within 5s of context cancellation (regression of #14: SIGTERM/SIGINT never actually shuts down the daemon)")
+	}
+}
+
+func TestDaemonFilterFromFlags(t *testing.T) {
+	daemonCmd := newDaemonCmd()
+	if err := daemonCmd.ParseFlags([]string{
+		"--include-host", "elysiumlabs.dev",
+		"--exclude-host", "Navidrome.Home.RTGS.me",
+		"--exclude-host", "jellyfin.home.rtgs.me",
+		"--exclude-path", "/rest/ping",
+	}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+
+	got, err := daemonFilterFromFlags(daemonCmd)
+	if err != nil {
+		t.Fatalf("daemonFilterFromFlags: %v", err)
+	}
+
+	want := ingest.NewFilter(
+		[]string{"elysiumlabs.dev"},
+		[]string{"Navidrome.Home.RTGS.me", "jellyfin.home.rtgs.me"},
+		[]string{"/rest/ping"},
+	)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("daemonFilterFromFlags = %+v, want %+v", got, want)
+	}
+}
+
+func TestDaemonFilterFromFlags_Defaults(t *testing.T) {
+	daemonCmd := newDaemonCmd()
+
+	got, err := daemonFilterFromFlags(daemonCmd)
+	if err != nil {
+		t.Fatalf("daemonFilterFromFlags: %v", err)
+	}
+
+	if len(got.IncludeHosts) != 0 || len(got.ExcludeHosts) != 0 || len(got.ExcludePaths) != 0 {
+		t.Errorf("expected an empty filter with no flags set, got %+v", got)
 	}
 }
 

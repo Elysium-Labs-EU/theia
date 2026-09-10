@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -56,6 +57,46 @@ const dateRangeClause = "((year > ? OR (year = ? AND year_day >= ?)) AND (year <
 // a host filter is requested.
 const hostFilterClause = " AND host = ?"
 
+// Filters narrows GetSummary/GetTopPaths/GetStatusCodes/GetTopReferrers
+// (the query-time filters `theia stats` exposes) beyond their [since, top]
+// window. Host is a single positive include, unchanged from before this
+// type existed; ExcludeHosts and ExcludePaths additionally drop matching
+// rows. Hosts are compared normalized (lowercase, by the caller); paths by
+// literal prefix.
+type Filters struct {
+	Host         string
+	ExcludeHosts []string
+	ExcludePaths []string
+}
+
+// likeEscaper escapes SQL LIKE's wildcard characters (and the escape
+// character itself) so a path prefix is matched literally, not as a
+// pattern — an operator excluding "/a_b" must not also drop "/axb".
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// filterClause builds the WHERE fragment and bind args for f, appended
+// after a query's existing date-range clause. withPath controls whether
+// ExcludePaths clauses are included: visitor_days has no path column, so
+// getUniqueVisitors's caller passes false.
+func filterClause(f Filters, withPath bool) (clause string, args []any) {
+	var sb strings.Builder
+	if f.Host != "" {
+		sb.WriteString(hostFilterClause)
+		args = append(args, f.Host)
+	}
+	for _, h := range f.ExcludeHosts {
+		sb.WriteString(" AND host != ?")
+		args = append(args, h)
+	}
+	if withPath {
+		for _, p := range f.ExcludePaths {
+			sb.WriteString(" AND path NOT LIKE ? ESCAPE '\\'")
+			args = append(args, likeEscaper.Replace(p)+"%")
+		}
+	}
+	return sb.String(), args
+}
+
 // rangeArgs returns the bind args for dateRangeClause over [from, to].
 func rangeArgs(from, to time.Time) []any {
 	fromYear, fromDay := from.Year(), from.YearDay()
@@ -63,7 +104,7 @@ func rangeArgs(from, to time.Time) []any {
 	return []any{fromYear, fromYear, fromDay, toYear, toYear, toDay}
 }
 
-func GetSummary(ctx context.Context, db *sql.DB, since time.Time, host string) (Summary, error) {
+func GetSummary(ctx context.Context, db *sql.DB, since time.Time, f Filters) (Summary, error) {
 	year, yearDay := sinceFilter(since)
 
 	q := `
@@ -74,17 +115,16 @@ func GetSummary(ctx context.Context, db *sql.DB, since time.Time, host string) (
 	WHERE (year > ? OR (year = ? AND year_day >= ?))`
 
 	args := []any{year, year, yearDay}
-	if host != "" {
-		q += hostFilterClause
-		args = append(args, host)
-	}
+	clause, filterArgs := filterClause(f, true)
+	q += clause // #nosec G202 -- clause is built by filterClause from fixed literal SQL fragments only; all operator-supplied values are bound via placeholders in args, never concatenated into q
+	args = append(args, filterArgs...)
 
 	var s Summary
 	if err := db.QueryRowContext(ctx, q, args...).Scan(&s.Pageviews, &s.BotViews); err != nil {
 		return Summary{}, fmt.Errorf("querying summary: %w", err)
 	}
 
-	uniqueVisitors, err := getUniqueVisitors(ctx, db, year, yearDay, host)
+	uniqueVisitors, err := getUniqueVisitors(ctx, db, year, yearDay, f)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -93,17 +133,20 @@ func GetSummary(ctx context.Context, db *sql.DB, since time.Time, host string) (
 	return s, nil
 }
 
-func getUniqueVisitors(ctx context.Context, db *sql.DB, year, yearDay int, host string) (int, error) {
+// getUniqueVisitors counts distinct visitors from visitor_days, which has
+// no path column — f.ExcludePaths cannot apply here regardless of what the
+// caller sets, so unique-visitor counts are always host-day-grained, never
+// path-grained.
+func getUniqueVisitors(ctx context.Context, db *sql.DB, year, yearDay int, f Filters) (int, error) {
 	q := `
 	SELECT COUNT(DISTINCT hash)
 	FROM visitor_days
 	WHERE (year > ? OR (year = ? AND year_day >= ?))`
 
 	args := []any{year, year, yearDay}
-	if host != "" {
-		q += hostFilterClause
-		args = append(args, host)
-	}
+	clause, filterArgs := filterClause(f, false)
+	q += clause // #nosec G202 -- clause is built by filterClause from fixed literal SQL fragments only; all operator-supplied values are bound via placeholders in args, never concatenated into q
+	args = append(args, filterArgs...)
 
 	var count int
 	if err := db.QueryRowContext(ctx, q, args...).Scan(&count); err != nil {
@@ -112,7 +155,7 @@ func getUniqueVisitors(ctx context.Context, db *sql.DB, year, yearDay int, host 
 	return count, nil
 }
 
-func GetTopPaths(ctx context.Context, db *sql.DB, since time.Time, host string, limit int) ([]PathStat, error) {
+func GetTopPaths(ctx context.Context, db *sql.DB, since time.Time, f Filters, limit int) ([]PathStat, error) {
 	year, yearDay := sinceFilter(since)
 
 	q := `
@@ -122,10 +165,9 @@ func GetTopPaths(ctx context.Context, db *sql.DB, since time.Time, host string, 
 	  AND is_static = 0`
 
 	args := []any{year, year, yearDay}
-	if host != "" {
-		q += hostFilterClause
-		args = append(args, host)
-	}
+	clause, filterArgs := filterClause(f, true)
+	q += clause // #nosec G202 -- clause is built by filterClause from fixed literal SQL fragments only; all operator-supplied values are bound via placeholders in args, never concatenated into q
+	args = append(args, filterArgs...)
 	q += " GROUP BY path, host ORDER BY total_pv DESC LIMIT ?"
 	args = append(args, limit)
 
@@ -146,7 +188,7 @@ func GetTopPaths(ctx context.Context, db *sql.DB, since time.Time, host string, 
 	return results, rows.Err()
 }
 
-func GetStatusCodes(ctx context.Context, db *sql.DB, since time.Time, host string) ([]StatusStat, error) {
+func GetStatusCodes(ctx context.Context, db *sql.DB, since time.Time, f Filters) ([]StatusStat, error) {
 	year, yearDay := sinceFilter(since)
 
 	q := `
@@ -155,10 +197,9 @@ func GetStatusCodes(ctx context.Context, db *sql.DB, since time.Time, host strin
 	WHERE (year > ? OR (year = ? AND year_day >= ?))`
 
 	args := []any{year, year, yearDay}
-	if host != "" {
-		q += hostFilterClause
-		args = append(args, host)
-	}
+	clause, filterArgs := filterClause(f, true)
+	q += clause // #nosec G202 -- clause is built by filterClause from fixed literal SQL fragments only; all operator-supplied values are bound via placeholders in args, never concatenated into q
+	args = append(args, filterArgs...)
 	q += " GROUP BY status_code ORDER BY total DESC"
 
 	rows, err := db.QueryContext(ctx, q, args...)
@@ -178,7 +219,7 @@ func GetStatusCodes(ctx context.Context, db *sql.DB, since time.Time, host strin
 	return results, rows.Err()
 }
 
-func GetTopReferrers(ctx context.Context, db *sql.DB, since time.Time, host string, limit int) ([]ReferrerStat, error) {
+func GetTopReferrers(ctx context.Context, db *sql.DB, since time.Time, f Filters, limit int) ([]ReferrerStat, error) {
 	year, yearDay := sinceFilter(since)
 
 	q := `
@@ -188,10 +229,9 @@ func GetTopReferrers(ctx context.Context, db *sql.DB, since time.Time, host stri
 	  AND referrer != '-'`
 
 	args := []any{year, year, yearDay}
-	if host != "" {
-		q += hostFilterClause
-		args = append(args, host)
-	}
+	clause, filterArgs := filterClause(f, true)
+	q += clause // #nosec G202 -- clause is built by filterClause from fixed literal SQL fragments only; all operator-supplied values are bound via placeholders in args, never concatenated into q
+	args = append(args, filterArgs...)
 	q += " GROUP BY referrer ORDER BY total DESC LIMIT ?"
 	args = append(args, limit)
 
