@@ -34,7 +34,7 @@ Status: Accepted
   is by prefix, mirroring the existing `isStaticAsset` prefix-check style
   already used in the parser rather than introducing full glob/regex
   matching.
-- Ingest-time filtering is a pure predicate (`PageView -> bool`) evaluated
+- Ingest-time filtering is a pure predicate (`PageView` to `bool`) evaluated
   after parsing, before the row is pushed onto the ingest channel — kept
   separate from parsing itself so parse failures and filter decisions stay
   independently testable.
