@@ -53,13 +53,49 @@ func runIngestScenario(t *testing.T, logLines []string) *sql.DB {
 	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
 
 	tailArgs := []string{"-n", "+1", logPath}
-	if err := tailLog(t.Context(), tailArgs, pageViews); err != nil {
+	if err := tailLog(t.Context(), tailArgs, pageViews, Filter{}); err != nil {
 		t.Errorf("tailLog returned unexpected error: %v", err)
 	}
 	close(pageViews)
 	wg.Wait()
 
 	return db
+}
+
+// TestIngestPipelineAppliesFilter is a full-pipeline check (parse -> filter
+// -> hourly_stats) that an excluded host's line never lands in the
+// database at all, not just that it's dropped before the channel send in
+// isolation.
+func TestIngestPipelineAppliesFilter(t *testing.T) {
+	db, tempDir := setupTestDB(t)
+	t.Cleanup(func() { _ = database.Close(db) })
+
+	logPath := filepath.Join(tempDir, "access.log")
+	createTestLogFile(t, logPath, []string{
+		`127.0.0.1 - - [20/Jul/2026:10:00:00 +0000] "GET / HTTP/1.1" 200 100 "-" "Mozilla/5.0" "navidrome.home.rtgs.me"`,
+		`127.0.0.1 - - [20/Jul/2026:10:00:00 +0000] "GET / HTTP/1.1" 200 100 "-" "Mozilla/5.0" "elysiumlabs.dev"`,
+	})
+
+	pageViews := make(chan PageView, 100)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
+
+	filter := NewFilter(nil, []string{"navidrome.home.rtgs.me"}, nil)
+	tailArgs := []string{"-n", "+1", logPath}
+	if err := tailLog(t.Context(), tailArgs, pageViews, filter); err != nil {
+		t.Errorf("tailLog returned unexpected error: %v", err)
+	}
+	close(pageViews)
+	wg.Wait()
+
+	stats := getHourlyStats(t, db)
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 hourly_stats row (excluded host never stored), got %d: %+v", len(stats), stats)
+	}
+	if stats[0].Host != "elysiumlabs.dev" {
+		t.Errorf("expected the surviving row's host to be elysiumlabs.dev, got %q", stats[0].Host)
+	}
 }
 
 // wantScenarioEntries is the number of test log lines every ingest scenario
@@ -273,7 +309,7 @@ func TestTailLogSkipsOverlongLineAndContinues(t *testing.T) {
 	go processPageviewsWithWaitGroup(t.Context(), db, pageViews, &wg)
 
 	tailArgs := []string{"-n", "+1", logPath}
-	if err := tailLog(t.Context(), tailArgs, pageViews); err != nil {
+	if err := tailLog(t.Context(), tailArgs, pageViews, Filter{}); err != nil {
 		t.Errorf("tailLog returned unexpected error: %v", err)
 	}
 	close(pageViews)
@@ -305,7 +341,7 @@ func TestRunStopsOnContextCancellation(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, dbPath, logPath)
+		done <- Run(ctx, dbPath, logPath, Filter{})
 	}()
 
 	// Give "tail -f" time to start before simulating the shutdown signal.
@@ -332,7 +368,7 @@ func TestRun_ReturnsErrorForMissingLogFile(t *testing.T) {
 	dbPath := filepath.Join(tempDir, "test.db")
 	logPath := filepath.Join(tempDir, "does-not-exist.log")
 
-	err := Run(t.Context(), dbPath, logPath)
+	err := Run(t.Context(), dbPath, logPath, Filter{})
 	if err == nil {
 		t.Fatal("expected Run to return an error for a missing log file, got nil")
 	}
@@ -364,7 +400,7 @@ func TestRun_ReturnsErrorForUnreadableLogFile(t *testing.T) {
 		_ = os.Chmod(logPath, 0o600)
 	})
 
-	err := Run(t.Context(), dbPath, logPath)
+	err := Run(t.Context(), dbPath, logPath, Filter{})
 	if err == nil {
 		t.Fatal("expected Run to return an error for an unreadable log file, got nil")
 	}

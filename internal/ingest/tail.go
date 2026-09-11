@@ -23,7 +23,7 @@ const maxLogLineSize = 1 << 20 // 1 MiB
 // ctx cancellation; it wraps tail's own stderr diagnostic so the caller can
 // surface a clear, actionable message instead of the daemon silently going
 // idle.
-func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) error {
+func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView, filter Filter) error {
 	tailLogCommand := exec.CommandContext(ctx, "tail", tailArgs...) //nolint:gosec // args are internal, not user input
 
 	var stderr bytes.Buffer
@@ -56,6 +56,9 @@ func tailLog(ctx context.Context, tailArgs []string, pageViews chan<- PageView) 
 		pageView, err := parseNginxLog(line)
 		if err != nil {
 			fmt.Printf("error occurred during parsing of the line, got: %v\n", err)
+			continue
+		}
+		if !allowPageView(filter, &pageView) {
 			continue
 		}
 		pageViews <- pageView

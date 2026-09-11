@@ -63,6 +63,8 @@ includes:
       VERSION: '{{.VERSION}}'
   docker:
     taskfile: ./taskfiles/docker.yml
+  docs:
+    taskfile: ./taskfiles/docs.yml
 
 tasks:
   default:

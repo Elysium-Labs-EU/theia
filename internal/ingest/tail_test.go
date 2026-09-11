@@ -30,7 +30,7 @@ func TestTailLogFollowsRenameBasedRotation(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := tailLog(ctx, []string{"-F", logPath}, pageViews); err != nil {
+		if err := tailLog(ctx, []string{"-F", logPath}, pageViews, Filter{}); err != nil {
 			t.Errorf("tailLog returned unexpected error: %v", err)
 		}
 	}()
@@ -67,13 +67,57 @@ func TestTailLogFollowsRenameBasedRotation(t *testing.T) {
 func TestTailLog_ReturnsErrorWithStderrForInvalidArgs(t *testing.T) {
 	pageViews := make(chan PageView, 1)
 
-	err := tailLog(t.Context(), []string{"--this-flag-does-not-exist"}, pageViews)
+	err := tailLog(t.Context(), []string{"--this-flag-does-not-exist"}, pageViews, Filter{})
 	if err == nil {
 		t.Fatal("expected tailLog to return an error for an invalid tail argument, got nil")
 	}
 	if !strings.Contains(err.Error(), "this-flag-does-not-exist") {
 		t.Errorf("expected error to carry tail's stderr diagnostic, got: %v", err)
 	}
+}
+
+// TestTailLogAppliesFilter is an end-to-end check that a Filter passed to
+// tailLog actually stops matching lines from ever reaching the pageViews
+// channel — not just that allowPageView returns the right bool in isolation.
+func TestTailLogAppliesFilter(t *testing.T) {
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "access.log")
+
+	lines := strings.Join([]string{
+		accessLogLineWithHost("/rest/ping", "navidrome.home.rtgs.me"),
+		accessLogLineWithHost("/", "elysiumlabs.dev"),
+		accessLogLineWithHost("/keep", "navidrome.home.rtgs.me"),
+	}, "\n") + "\n"
+	if err := os.WriteFile(logPath, []byte(lines), 0o600); err != nil {
+		t.Fatalf("failed to create log file: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	pageViews := make(chan PageView, 10)
+	done := make(chan struct{})
+	filter := NewFilter(nil, []string{"navidrome.home.rtgs.me"}, nil)
+	go func() {
+		defer close(done)
+		if err := tailLog(ctx, []string{"-F", logPath}, pageViews, filter); err != nil {
+			t.Errorf("tailLog returned unexpected error: %v", err)
+		}
+	}()
+
+	got := waitForPageView(t, pageViews)
+	if got.Host != "elysiumlabs.dev" || got.Path != "/" {
+		t.Fatalf("expected the one non-excluded host, got %+v", got)
+	}
+
+	select {
+	case extra := <-pageViews:
+		t.Fatalf("expected no further page views (excluded host lines should be dropped), got %+v", extra)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	cancel()
+	<-done
 }
 
 func waitForPageView(t *testing.T, pageViews <-chan PageView) PageView {
@@ -89,6 +133,10 @@ func waitForPageView(t *testing.T, pageViews <-chan PageView) PageView {
 
 func accessLogLine(path string) string {
 	return `127.0.0.1 - - [20/Jul/2026:10:00:00 +0000] "GET ` + path + ` HTTP/1.1" 200 100 "-" "Mozilla/5.0"`
+}
+
+func accessLogLineWithHost(path, host string) string {
+	return accessLogLine(path) + ` "` + host + `"`
 }
 
 func appendAccessLogLine(path, urlPath string) error {
