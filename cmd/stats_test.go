@@ -98,7 +98,7 @@ func TestCollectStats(t *testing.T) {
 	insertStat(t, db, "/about", "example.com", now, statSeed{PageViews: 3, UniqueVisitors: 2, BotViews: 0})
 	insertStat(t, db, "/style.css", "example.com", now, statSeed{PageViews: 100, UniqueVisitors: 50, BotViews: 0, IsStatic: true})
 
-	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), query.Filters{}, 10)
+	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), &query.Filters{}, 10)
 	if err != nil {
 		t.Fatalf("collectStats: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestCollectStats_HostFilter(t *testing.T) {
 	insertStat(t, db, "/", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 3, BotViews: 0})
 	insertStat(t, db, "/", "other.com", now, statSeed{PageViews: 10, UniqueVisitors: 7, BotViews: 0})
 
-	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), query.Filters{Host: "example.com"}, 10)
+	report, err := collectStats(t.Context(), db, now.AddDate(0, 0, -7), &query.Filters{Host: "example.com"}, 10)
 	if err != nil {
 		t.Fatalf("collectStats: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestCollectStats_EmptyDB(t *testing.T) {
 	db, _ := setupCmdTestDB(t)
 	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
 
-	report, err := collectStats(t.Context(), db, time.Now().AddDate(0, 0, -7), query.Filters{}, 10)
+	report, err := collectStats(t.Context(), db, time.Now().AddDate(0, 0, -7), &query.Filters{}, 10)
 	if err != nil {
 		t.Fatalf("collectStats on empty db: %v", err)
 	}
@@ -296,6 +296,7 @@ func TestStatsFiltersFromFlags(t *testing.T) {
 		"--host", "Example.COM",
 		"--exclude-host", "Noisy.COM",
 		"--exclude-path", "/rest/ping",
+		"--exclude-referrer", "binance.com",
 	}); err != nil {
 		t.Fatalf("ParseFlags: %v", err)
 	}
@@ -306,12 +307,56 @@ func TestStatsFiltersFromFlags(t *testing.T) {
 	}
 
 	want := query.Filters{
-		Host:         "example.com",
-		ExcludeHosts: []string{"noisy.com"},
-		ExcludePaths: []string{"/rest/ping"},
+		Host:             "example.com",
+		ExcludeHosts:     []string{"noisy.com"},
+		ExcludePaths:     []string{"/rest/ping"},
+		ExcludeReferrers: []string{"binance.com"},
 	}
-	if got.Host != want.Host || len(got.ExcludeHosts) != 1 || got.ExcludeHosts[0] != want.ExcludeHosts[0] || len(got.ExcludePaths) != 1 || got.ExcludePaths[0] != want.ExcludePaths[0] {
+	if got.Host != want.Host || len(got.ExcludeHosts) != 1 || got.ExcludeHosts[0] != want.ExcludeHosts[0] || len(got.ExcludePaths) != 1 || got.ExcludePaths[0] != want.ExcludePaths[0] || len(got.ExcludeReferrers) != 1 || got.ExcludeReferrers[0] != want.ExcludeReferrers[0] {
 		t.Errorf("statsFiltersFromFlags = %+v, want %+v", got, want)
+	}
+}
+
+func TestStatsCmd_ExcludeReferrer(t *testing.T) {
+	db, dbPath := setupCmdTestDB(t)
+	now := time.Now()
+	if _, err := db.ExecContext(t.Context(), `
+		INSERT INTO hourly_referrers (hour, year_day, year, path, host, referrer, count)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		now.Hour(), now.YearDay(), now.Year(), "/", "example.com", "https://google.com", 5,
+	); err != nil {
+		t.Fatalf("insert referrer: %v", err)
+	}
+	if _, err := db.ExecContext(t.Context(), `
+		INSERT INTO hourly_referrers (hour, year_day, year, path, host, referrer, count)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		now.Hour(), now.YearDay(), now.Year(), "/", "example.com", "binance.com", 66,
+	); err != nil {
+		t.Fatalf("insert referrer: %v", err)
+	}
+	database.Close(db) //nolint:errcheck // close before command reopens the same file
+
+	cmd := newStatsCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--db-path", dbPath, "--format", "json", "--exclude-referrer", "binance.com"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\noutput: %s", err, buf.String())
+	}
+
+	var report statsReport
+	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+		t.Fatalf("unmarshal JSON: %v\noutput: %s", err, buf.String())
+	}
+	for _, r := range report.TopReferrers {
+		if r.Referrer == "binance.com" {
+			t.Errorf("expected binance.com to be excluded from top referrers, got %+v", report.TopReferrers)
+		}
+	}
+	if len(report.TopReferrers) != 1 || report.TopReferrers[0].Referrer != "https://google.com" {
+		t.Errorf("expected only google.com referrer, got %+v", report.TopReferrers)
 	}
 }
 
@@ -405,7 +450,7 @@ func TestRunStats_MigrationLockPermissionDeniedHasHint(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(t.Context())
-	err := runStats(cmd, dbPath, 7, query.Filters{}, "table", 10)
+	err := runStats(cmd, dbPath, 7, &query.Filters{}, "table", 10)
 	if err == nil {
 		t.Fatal("expected a permission error, got nil")
 	}
@@ -460,7 +505,7 @@ func TestCollectStats_Context(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	_, err := collectStats(ctx, db, time.Now().AddDate(0, 0, -7), query.Filters{}, 10)
+	_, err := collectStats(ctx, db, time.Now().AddDate(0, 0, -7), &query.Filters{}, 10)
 	if err == nil {
 		t.Error("expected error with canceled context, got nil")
 	}

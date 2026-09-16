@@ -124,7 +124,7 @@ func TestGetSummary(t *testing.T) {
 	insertHourlyStat(t, db, "/old", "example.com", old, statSeed{PageViews: 100, UniqueVisitors: 50, BotViews: 10})
 
 	since := now.AddDate(0, 0, -7)
-	got, err := query.GetSummary(ctx, db, since, query.Filters{})
+	got, err := query.GetSummary(ctx, db, since, &query.Filters{})
 	if err != nil {
 		t.Fatalf("GetSummary: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestGetSummaryHostFilter(t *testing.T) {
 	insertHourlyStat(t, db, "/", "other.com", now, statSeed{PageViews: 10, UniqueVisitors: 7, BotViews: 0})
 
 	since := now.AddDate(0, 0, -7)
-	got, err := query.GetSummary(ctx, db, since, query.Filters{Host: "example.com"})
+	got, err := query.GetSummary(ctx, db, since, &query.Filters{Host: "example.com"})
 	if err != nil {
 		t.Fatalf("GetSummary: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestGetSummaryEmpty(t *testing.T) {
 	ctx := context.Background()
 	since := time.Now().AddDate(0, 0, -7)
 
-	got, err := query.GetSummary(ctx, db, since, query.Filters{})
+	got, err := query.GetSummary(ctx, db, since, &query.Filters{})
 	if err != nil {
 		t.Fatalf("GetSummary on empty db: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestGetSummaryExcludeHosts(t *testing.T) {
 	insertHourlyStat(t, db, "/", "noisy.com", now, statSeed{PageViews: 10, UniqueVisitors: 7, BotViews: 0})
 
 	since := now.AddDate(0, 0, -7)
-	got, err := query.GetSummary(ctx, db, since, query.Filters{ExcludeHosts: []string{"noisy.com"}})
+	got, err := query.GetSummary(ctx, db, since, &query.Filters{ExcludeHosts: []string{"noisy.com"}})
 	if err != nil {
 		t.Fatalf("GetSummary: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestGetTopPathsExcludePaths(t *testing.T) {
 	insertHourlyStat(t, db, "/rest/ping", "example.com", now, statSeed{PageViews: 100, UniqueVisitors: 1, BotViews: 0})
 
 	since := now.AddDate(0, 0, -7)
-	paths, err := query.GetTopPaths(ctx, db, since, query.Filters{ExcludePaths: []string{"/rest/ping"}}, 10)
+	paths, err := query.GetTopPaths(ctx, db, since, &query.Filters{ExcludePaths: []string{"/rest/ping"}}, 10)
 	if err != nil {
 		t.Fatalf("GetTopPaths: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestGetTopPathsExcludeHosts(t *testing.T) {
 	insertHourlyStat(t, db, "/", "noisy.com", now, statSeed{PageViews: 100, UniqueVisitors: 1, BotViews: 0})
 
 	since := now.AddDate(0, 0, -7)
-	paths, err := query.GetTopPaths(ctx, db, since, query.Filters{ExcludeHosts: []string{"noisy.com"}}, 10)
+	paths, err := query.GetTopPaths(ctx, db, since, &query.Filters{ExcludeHosts: []string{"noisy.com"}}, 10)
 	if err != nil {
 		t.Fatalf("GetTopPaths: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestGetStatusCodesExcludeHosts(t *testing.T) {
 	insertStatusCode(t, db, "/", "noisy.com", now, 500, 9)
 
 	since := now.AddDate(0, 0, -7)
-	codes, err := query.GetStatusCodes(ctx, db, since, query.Filters{ExcludeHosts: []string{"noisy.com"}})
+	codes, err := query.GetStatusCodes(ctx, db, since, &query.Filters{ExcludeHosts: []string{"noisy.com"}})
 	if err != nil {
 		t.Fatalf("GetStatusCodes: %v", err)
 	}
@@ -271,7 +271,27 @@ func TestGetTopReferrersExcludeHosts(t *testing.T) {
 	insertReferrer(t, db, "/", "noisy.com", "https://bing.com", now, 9)
 
 	since := now.AddDate(0, 0, -7)
-	refs, err := query.GetTopReferrers(ctx, db, since, query.Filters{ExcludeHosts: []string{"noisy.com"}}, 10)
+	refs, err := query.GetTopReferrers(ctx, db, since, &query.Filters{ExcludeHosts: []string{"noisy.com"}}, 10)
+	if err != nil {
+		t.Fatalf("GetTopReferrers: %v", err)
+	}
+	if len(refs) != 1 || refs[0].Referrer != "https://google.com" {
+		t.Fatalf("expected only google.com referrer, got %+v", refs)
+	}
+}
+
+func TestGetTopReferrersExcludeReferrers(t *testing.T) {
+	db := setupTestDB(t)
+	defer database.Close(db) //nolint:errcheck // close error in defer is not actionable
+
+	ctx := context.Background()
+	now := time.Now()
+
+	insertReferrer(t, db, "/", "example.com", "https://google.com", now, 5)
+	insertReferrer(t, db, "/", "example.com", "binance.com", now, 66)
+
+	since := now.AddDate(0, 0, -7)
+	refs, err := query.GetTopReferrers(ctx, db, since, &query.Filters{ExcludeReferrers: []string{"binance.com"}}, 10)
 	if err != nil {
 		t.Fatalf("GetTopReferrers: %v", err)
 	}
@@ -294,7 +314,7 @@ func TestGetTopPathsExcludePathsLiteralWildcards(t *testing.T) {
 	insertHourlyStat(t, db, "/axb", "example.com", now, statSeed{PageViews: 5, UniqueVisitors: 1})
 
 	since := now.AddDate(0, 0, -7)
-	paths, err := query.GetTopPaths(ctx, db, since, query.Filters{ExcludePaths: []string{"/a_b"}}, 10)
+	paths, err := query.GetTopPaths(ctx, db, since, &query.Filters{ExcludePaths: []string{"/a_b"}}, 10)
 	if err != nil {
 		t.Fatalf("GetTopPaths: %v", err)
 	}
@@ -315,7 +335,7 @@ func TestGetTopPaths(t *testing.T) {
 	insertHourlyStat(t, db, "/style.css", "example.com", now, statSeed{PageViews: 50, UniqueVisitors: 20, BotViews: 0, IsStatic: true})
 
 	since := now.AddDate(0, 0, -7)
-	paths, err := query.GetTopPaths(ctx, db, since, query.Filters{}, 10)
+	paths, err := query.GetTopPaths(ctx, db, since, &query.Filters{}, 10)
 	if err != nil {
 		t.Fatalf("GetTopPaths: %v", err)
 	}
@@ -343,7 +363,7 @@ func TestGetTopPathsLimit(t *testing.T) {
 	}
 
 	since := now.AddDate(0, 0, -7)
-	paths, err := query.GetTopPaths(ctx, db, since, query.Filters{}, 3)
+	paths, err := query.GetTopPaths(ctx, db, since, &query.Filters{}, 3)
 	if err != nil {
 		t.Fatalf("GetTopPaths: %v", err)
 	}
@@ -364,7 +384,7 @@ func TestGetStatusCodes(t *testing.T) {
 	insertStatusCode(t, db, "/err", "example.com", now, 500, 2)
 
 	since := now.AddDate(0, 0, -7)
-	codes, err := query.GetStatusCodes(ctx, db, since, query.Filters{})
+	codes, err := query.GetStatusCodes(ctx, db, since, &query.Filters{})
 	if err != nil {
 		t.Fatalf("GetStatusCodes: %v", err)
 	}
@@ -384,7 +404,7 @@ func TestGetTopPathsEmptyReturnsEmptySlice(t *testing.T) {
 	ctx := context.Background()
 	since := time.Now().AddDate(0, 0, -7)
 
-	paths, err := query.GetTopPaths(ctx, db, since, query.Filters{}, 10)
+	paths, err := query.GetTopPaths(ctx, db, since, &query.Filters{}, 10)
 	if err != nil {
 		t.Fatalf("GetTopPaths on empty db: %v", err)
 	}
@@ -403,7 +423,7 @@ func TestGetStatusCodesEmptyReturnsEmptySlice(t *testing.T) {
 	ctx := context.Background()
 	since := time.Now().AddDate(0, 0, -7)
 
-	codes, err := query.GetStatusCodes(ctx, db, since, query.Filters{})
+	codes, err := query.GetStatusCodes(ctx, db, since, &query.Filters{})
 	if err != nil {
 		t.Fatalf("GetStatusCodes on empty db: %v", err)
 	}
@@ -422,7 +442,7 @@ func TestGetTopReferrersEmptyReturnsEmptySlice(t *testing.T) {
 	ctx := context.Background()
 	since := time.Now().AddDate(0, 0, -7)
 
-	refs, err := query.GetTopReferrers(ctx, db, since, query.Filters{}, 10)
+	refs, err := query.GetTopReferrers(ctx, db, since, &query.Filters{}, 10)
 	if err != nil {
 		t.Fatalf("GetTopReferrers on empty db: %v", err)
 	}
@@ -446,7 +466,7 @@ func TestGetTopReferrers(t *testing.T) {
 	insertReferrer(t, db, "/", "example.com", "https://hn.com", now, 30)
 
 	since := now.AddDate(0, 0, -7)
-	refs, err := query.GetTopReferrers(ctx, db, since, query.Filters{}, 10)
+	refs, err := query.GetTopReferrers(ctx, db, since, &query.Filters{}, 10)
 	if err != nil {
 		t.Fatalf("GetTopReferrers: %v", err)
 	}
